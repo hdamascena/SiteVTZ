@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { ClubDataProvider } from './context/ClubDataContext.tsx';
+import { ClubDataProvider, useClubData } from './context/ClubDataContext.tsx';
 import { Header } from './components/Header.tsx';
 import { HeroCarousel } from './components/HeroCarousel.tsx';
 import { EventsCalendar } from './components/EventsCalendar.tsx';
@@ -17,11 +17,14 @@ import { ReservationSimulatorModal } from './components/ReservationSimulatorModa
 import { CookieBanner } from './components/CookieBanner.tsx';
 import { SubpageView } from './components/SubpageView.tsx';
 import { AdminPanel } from './components/AdminPanel.tsx';
-import { ArrowUp } from 'lucide-react';
+import { SponsorsSection } from './components/SponsorsSection.tsx';
+import { ArrowUp, Megaphone, ArrowRight } from 'lucide-react';
+import type { EventCategory } from './types/index.ts';
 
 const EASE_EDITORIAL: [number, number, number, number] = [0.16, 1, 0.3, 1];
 
 function VitalizarMainApp() {
+  const { siteSettings } = useClubData();
   const [searchOpen, setSearchOpen] = useState(false);
   const [inscricoesOpen, setInscricoesOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
@@ -29,6 +32,7 @@ function VitalizarMainApp() {
 
   const [activeSubpage, setActiveSubpage] = useState<string | null>(null);
   const [activeSubTab, setActiveSubTab] = useState<string | undefined>(undefined);
+  const [homeEventCategory, setHomeEventCategory] = useState<EventCategory | 'all'>('all');
 
   useEffect(() => {
     const checkHash = () => {
@@ -70,7 +74,21 @@ function VitalizarMainApp() {
       return;
     }
 
+    if (pageId === 'inscricoes') {
+      setInscricoesOpen(true);
+      return;
+    }
+
     if (pageId === 'eventos' || subId === 'eventos') {
+      if (
+        subId === 'clinica_esportiva' ||
+        subId === 'oficina_comunitaria' ||
+        subId === 'reuniao_associacao'
+      ) {
+        setHomeEventCategory(subId);
+      } else {
+        setHomeEventCategory('all');
+      }
       if (activeSubpage) {
         setActiveSubpage(null);
         setActiveSubTab(undefined);
@@ -93,13 +111,15 @@ function VitalizarMainApp() {
 
   const handleSearchSelectAction = (actionType: string, id: string) => {
     if (actionType === 'eventos') {
-      handleOpenSubpage('eventos');
+      handleOpenSubpage('eventos', id);
     } else if (actionType === 'projetos') {
       handleOpenSubpage('projetos', id);
     } else if (actionType === 'transparencia') {
       handleOpenSubpage('transparencia', id);
     } else if (actionType === 'noticia') {
-      handleOpenSubpage('noticias');
+      handleOpenSubpage('noticias', id);
+    } else if (actionType === 'patrocinadores') {
+      handleOpenSubpage('patrocinadores', id);
     } else if (actionType === 'a-vitalizar') {
       handleOpenSubpage('a-vitalizar', id);
     } else {
@@ -109,12 +129,37 @@ function VitalizarMainApp() {
 
   return (
     <div className="min-h-screen flex flex-col bg-white text-slate-800">
+      {/* Dynamic Institutional Announcement Bar (Configured in Admin Settings) */}
+      {siteSettings.announcementBanner?.enabled && siteSettings.announcementBanner.text && (
+        <div className="bg-[#0284c7] text-white px-4 py-2 text-xs font-medium border-b border-sky-400/30">
+          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2 text-center sm:text-left">
+            <div className="flex items-center gap-2 justify-center sm:justify-start">
+              <Megaphone className="w-3.5 h-3.5 text-sky-200 shrink-0" />
+              <span>{siteSettings.announcementBanner.text}</span>
+            </div>
+            {siteSettings.announcementBanner.linkLabel && (
+              <button
+                type="button"
+                onClick={() =>
+                  handleOpenSubpage(siteSettings.announcementBanner.linkTarget || 'inscricoes')
+                }
+                className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-white text-[#061a38] hover:bg-sky-50 font-bold text-[11px] rounded-md transition-colors cursor-pointer shrink-0"
+              >
+                <span>{siteSettings.announcementBanner.linkLabel}</span>
+                <ArrowRight className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Single-Line Editorial Header */}
       <Header
         onOpenSearch={() => setSearchOpen(true)}
         onOpenInscricoes={() => setInscricoesOpen(true)}
         onOpenSubpage={handleOpenSubpage}
         onOpenAdmin={() => setAdminOpen(true)}
+        activePageId={activeSubpage || 'home'}
       />
 
       {/* Main Content */}
@@ -148,7 +193,10 @@ function VitalizarMainApp() {
               viewport={{ once: true, amount: 0.08 }}
               transition={{ duration: 0.6, ease: EASE_EDITORIAL }}
             >
-              <EventsCalendar onOpenInscricoes={() => setInscricoesOpen(true)} />
+              <EventsCalendar
+                onOpenInscricoes={() => setInscricoesOpen(true)}
+                initialCategory={homeEventCategory}
+              />
             </motion.div>
 
             {/* Section 3: Galeria de Projetos e Eventos com Lightbox */}
@@ -173,6 +221,21 @@ function VitalizarMainApp() {
                 onOpenSubpage={handleOpenSubpage}
               />
             </motion.div>
+
+            {/* Section 5: Patrocinadores e Parceiros Oficiais */}
+            {siteSettings.enableSponsorsSection !== false && (
+              <motion.div
+                id="patrocinadores-oficiais"
+                initial={{ opacity: 0, y: 24 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, amount: 0.08 }}
+                transition={{ duration: 0.6, ease: EASE_EDITORIAL }}
+              >
+                <SponsorsSection
+                  onOpenContact={() => handleOpenSubpage('contato', 'parcerias')}
+                />
+              </motion.div>
+            )}
           </>
         )}
       </main>

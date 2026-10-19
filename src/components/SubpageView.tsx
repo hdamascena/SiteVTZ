@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ArrowLeft,
   Calendar,
@@ -20,11 +20,13 @@ import {
   Download,
   Paperclip,
   FileText,
+  Tag,
 } from 'lucide-react';
 import { FACILITY_POLOS } from '../data/clubeData.ts';
 import { useClubData } from '../context/ClubDataContext.tsx';
 import { NewsArticle } from '../types/index.ts';
 import { EventsCalendar } from './EventsCalendar.tsx';
+import { SponsorsSection } from './SponsorsSection.tsx';
 
 interface SubpageViewProps {
   pageId: string;
@@ -39,16 +41,56 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
   onBack,
   onOpenInscricoes,
 }) => {
-  const { clubInfo, newsArticles, projects, transparencyDocs, addContactMessage, showToast } =
-    useClubData();
+  const {
+    clubInfo,
+    siteSettings,
+    newsArticles,
+    projects,
+    transparencyDocs,
+    addContactMessage,
+    showToast,
+  } = useClubData();
   const [activeTab, setActiveTab] = useState<string>(subId || 'quem-somos');
-  const [contactSubject, setContactSubject] = useState('Dúvidas Gerais');
+  const [contactSubject, setContactSubject] = useState(
+    subId === 'parcerias' ? 'Parcerias' : 'Dúvidas Gerais'
+  );
   const [contactSent, setContactSent] = useState(false);
 
   // News subpage state
   const [newsFilterCategory, setNewsFilterCategory] = useState<string>('all');
   const [newsSearch, setNewsSearch] = useState('');
   const [selectedNewsArticle, setSelectedNewsArticle] = useState<NewsArticle | null>(null);
+
+  // Sync subId changes when navigating across subpages
+  useEffect(() => {
+    const validInstitucionalTabs = [
+      'quem-somos',
+      'missao-valores',
+      'diretoria-conselhos',
+      'sede-polos',
+      'estatuto-social',
+    ];
+    if (pageId === 'a-vitalizar') {
+      if (subId && validInstitucionalTabs.includes(subId)) {
+        setActiveTab(subId);
+      } else {
+        setActiveTab('quem-somos');
+      }
+    }
+    if (pageId === 'contato') {
+      if (subId === 'parcerias') {
+        setContactSubject('Parcerias');
+      } else if (subId === 'ouvidoria') {
+        setContactSubject('Ouvidoria');
+      }
+    }
+    if (pageId === 'noticias' && subId) {
+      const found = newsArticles.find((a) => a.id === subId);
+      if (found) {
+        setSelectedNewsArticle(found);
+      }
+    }
+  }, [pageId, subId, newsArticles]);
 
   // Form fields
   const [name, setName] = useState('');
@@ -446,11 +488,20 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
                   onChange={(e) => setContactSubject(e.target.value)}
                   className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-600"
                 >
-                  <option value="Dúvidas Gerais">Dúvidas Gerais</option>
-                  <option value="Inscrição em Projetos">Inscrição em Modalidades</option>
-                  <option value="Voluntariado">Voluntariado</option>
-                  <option value="Parcerias">Parcerias Institucionais</option>
-                  <option value="Ouvidoria">Ouvidoria</option>
+                  {(siteSettings.contactSubjects && siteSettings.contactSubjects.length > 0
+                    ? siteSettings.contactSubjects
+                    : [
+                        'Dúvidas Gerais',
+                        'Inscrição em Projetos',
+                        'Voluntariado',
+                        'Parcerias',
+                        'Ouvidoria',
+                      ]
+                  ).map((subj) => (
+                    <option key={subj} value={subj}>
+                      {subj}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -548,16 +599,23 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Show Sponsors & Partnership showcase in Contact/Parcerias */}
+      <div className="pt-4">
+        <SponsorsSection />
+      </div>
     </div>
   );
 
   const renderNoticias = () => {
+    const dynamicCategories =
+      siteSettings.newsCategories && siteSettings.newsCategories.length > 0
+        ? siteSettings.newsCategories
+        : ['Institucional', 'Esporte Educacional', 'Saúde & Qualidade de Vida', 'Transparência'];
+
     const categories = [
       { id: 'all', label: 'Todas' },
-      { id: 'Institucional', label: 'Institucional' },
-      { id: 'Esporte Educacional', label: 'Esporte Educacional' },
-      { id: 'Saúde & Qualidade de Vida', label: 'Saúde' },
-      { id: 'Transparência', label: 'Transparência' },
+      ...dynamicCategories.map((cat) => ({ id: cat, label: cat })),
     ];
 
     const filteredArticles = newsArticles.filter((art) => {
@@ -798,6 +856,14 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
         {pageId === 'contato' && renderContato()}
         {pageId === 'atividades' && renderProjetos()}
         {pageId === 'noticias' && renderNoticias()}
+        {pageId === 'patrocinadores' && (
+          <div className="space-y-8">
+            <SponsorsSection
+              title="Rede de Patrocinadores & Parceiros Institucionais"
+              subtitle="Conheça as empresas, órgãos públicos e instituições que viabilizam o esporte gratuito e o impacto social da Associação Esportiva Vitalizar em Cariacica/ES."
+            />
+          </div>
+        )}
         {pageId === 'eventos' && (
           <EventsCalendar
             onOpenInscricoes={onOpenInscricoes}
@@ -816,9 +882,11 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
           pageId !== 'contato' &&
           pageId !== 'atividades' &&
           pageId !== 'noticias' &&
+          pageId !== 'patrocinadores' &&
           pageId !== 'eventos' &&
           renderVitalizarInstitucional()}
       </div>
     </div>
   );
 };
+

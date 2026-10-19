@@ -38,6 +38,14 @@ import {
   Camera,
   Check,
   Link2,
+  HeartHandshake,
+  Cloud,
+  Sparkles,
+  Award,
+  Settings,
+  Tag,
+  Megaphone,
+  Globe,
 } from 'lucide-react';
 import { useClubData } from '../context/ClubDataContext.tsx';
 import {
@@ -56,6 +64,14 @@ import {
   inferFileTypeBadge,
   parseEventIsoDate,
 } from '../utils/fileUpload.ts';
+import { auth } from '../firebase.ts';
+import {
+  loginWithGoogleAdmin,
+  loginWithEmailPasswordFirebase,
+  verifyFirebaseAdminAccess,
+  logoutFirebaseAuth,
+  logoutFirebaseAdmin,
+} from '../services/firebaseService.ts';
 import type {
   NewsArticle,
   VitalizarEvent,
@@ -64,6 +80,9 @@ import type {
   VitalizarProject,
   PastEventPhoto,
   AttachedFile,
+  Sponsor,
+  SponsorTier,
+  SiteSettings,
 } from '../types/index.ts';
 
 interface AdminPanelProps {
@@ -423,7 +442,9 @@ const AttachmentsEditor: React.FC<AttachmentsEditorProps> = ({
 export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
   const {
     clubInfo,
+    siteSettings,
     newsArticles,
+    sponsors,
     events,
     rsvps,
     projects,
@@ -437,6 +458,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
     importDatabaseJson,
     saveAdminChanges,
     showToast,
+    isFirebaseActive,
   } = useClubData();
 
   // Authentication State
@@ -464,7 +486,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
   // Staged / Draft States (Only persisted when pressing Save)
   const [draftClubInfo, setDraftClubInfo] = useState<typeof clubInfo>(() => clubInfo);
+  const [draftSiteSettings, setDraftSiteSettings] = useState<SiteSettings>(() => siteSettings);
   const [draftNews, setDraftNews] = useState<NewsArticle[]>(() => newsArticles);
+  const [draftSponsors, setDraftSponsors] = useState<Sponsor[]>(() => sponsors);
   const [draftEvents, setDraftEvents] = useState<VitalizarEvent[]>(() => events);
   const [draftProjects, setDraftProjects] = useState<VitalizarProject[]>(() => projects);
   const [draftAlbums, setDraftAlbums] = useState<PastEventPhoto[]>(() => galleryAlbums);
@@ -473,14 +497,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
   const [draftMessages, setDraftMessages] = useState(() => contactMessages);
   const [draftCreds, setDraftCreds] = useState<AdminCredentials>(() => creds);
   const [unsavedClosePromptOpen, setUnsavedClosePromptOpen] = useState(false);
+  const [firebaseUser, setFirebaseUser] = useState(auth.currentUser);
+  const [isAuthenticatingFirebase, setIsAuthenticatingFirebase] = useState(false);
 
   // Sync draft states when context data changes externally (e.g. after save, reset, or import)
   useEffect(() => {
     setDraftClubInfo(clubInfo);
   }, [clubInfo]);
   useEffect(() => {
+    setDraftSiteSettings(siteSettings);
+  }, [siteSettings]);
+  useEffect(() => {
     setDraftNews(newsArticles);
   }, [newsArticles]);
+  useEffect(() => {
+    setDraftSponsors(sponsors);
+  }, [sponsors]);
   useEffect(() => {
     setDraftEvents(events);
   }, [events]);
@@ -503,6 +535,31 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
     setDraftCreds(creds);
   }, [creds]);
 
+  // Listen to Firebase Auth state and verify if user has administrative privileges
+  useEffect(() => {
+    const unsubscribe = auth.onAuthStateChanged(async (user) => {
+      setFirebaseUser(user);
+      if (user) {
+        const authCheck = await verifyFirebaseAdminAccess(user, creds.email);
+        if (authCheck.authorized) {
+          setSession((prev) => {
+            if (prev && isSessionValid(prev)) return prev;
+            const now = Date.now();
+            const newSession: AdminSession = {
+              token: `FB-ADM-${Math.random().toString(36).slice(2, 10).toUpperCase()}-${now.toString(36).toUpperCase()}`,
+              createdAt: now,
+              expiresAt: now + 2 * 60 * 60 * 1000,
+              adminEmail: user.email || creds.email,
+            };
+            sessionStorage.setItem('vitalizar_admin_session', JSON.stringify(newSession));
+            return newSession;
+          });
+        }
+      }
+    });
+    return () => unsubscribe();
+  }, [creds.email]);
+
   const [rateLimit, setRateLimit] = useState<RateLimitState>(() => {
     try {
       const saved = localStorage.getItem('vitalizar_admin_ratelimit');
@@ -521,8 +578,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
   // Active Tab in Admin
   const [activeTab, setActiveTab] = useState<
     | 'dashboard'
+    | 'configuracoes'
     | 'institucional'
     | 'noticias'
+    | 'patrocinadores'
     | 'eventos'
     | 'projetos'
     | 'galeria'
@@ -532,6 +591,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
     | 'seguranca'
     | 'backup'
   >('dashboard');
+
+  // Site Settings Inputs State (Categories, Tags, Suggestions)
+  const [newNewsCategory, setNewNewsCategory] = useState('');
+  const [newEventCategory, setNewEventCategory] = useState('');
+  const [newProjectCategory, setNewProjectCategory] = useState('');
+  const [newGalleryCategory, setNewGalleryCategory] = useState('');
+  const [newContactSubject, setNewContactSubject] = useState('');
+  const [newSiteTag, setNewSiteTag] = useState('');
+  const [newSearchSuggestion, setNewSearchSuggestion] = useState('');
+  const [newArticleTagInput, setNewArticleTagInput] = useState('');
 
   // News Editing & Filtering State
   const [editingNews, setEditingNews] = useState<NewsArticle | null>(null);
@@ -566,6 +635,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
   const [docCategoryFilter, setDocCategoryFilter] = useState('all');
   const [isUploadingDocFile, setIsUploadingDocFile] = useState(false);
 
+  // Sponsors Editing & Filtering State
+  const [editingSponsor, setEditingSponsor] = useState<Sponsor | null>(null);
+  const [isCreatingSponsor, setIsCreatingSponsor] = useState(false);
+  const [sponsorSearch, setSponsorSearch] = useState('');
+  const [sponsorTierFilter, setSponsorTierFilter] = useState('all');
+
   // RSVPs, Messages & Security UI State
   const [rsvpSearch, setRsvpSearch] = useState('');
   const [rsvpEventFilter, setRsvpEventFilter] = useState('all');
@@ -598,7 +673,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
   // Dirty / Unsaved Changes Detection
   const isClubInfoDirty = JSON.stringify(draftClubInfo) !== JSON.stringify(clubInfo);
+  const isSiteSettingsDirty = JSON.stringify(draftSiteSettings) !== JSON.stringify(siteSettings);
   const isNewsDirty = JSON.stringify(draftNews) !== JSON.stringify(newsArticles);
+  const isSponsorsDirty = JSON.stringify(draftSponsors) !== JSON.stringify(sponsors);
   const isEventsDirty = JSON.stringify(draftEvents) !== JSON.stringify(events);
   const isProjectsDirty = JSON.stringify(draftProjects) !== JSON.stringify(projects);
   const isAlbumsDirty = JSON.stringify(draftAlbums) !== JSON.stringify(galleryAlbums);
@@ -607,12 +684,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
   const isMessagesDirty = JSON.stringify(draftMessages) !== JSON.stringify(contactMessages);
   const isCredsDirty = JSON.stringify(draftCreds) !== JSON.stringify(creds);
   const hasOpenModalDraft = Boolean(
-    editingNews || editingEvent || editingProject || editingAlbum || editingDoc || editingRsvpItem
+    editingNews ||
+      editingSponsor ||
+      editingEvent ||
+      editingProject ||
+      editingAlbum ||
+      editingDoc ||
+      editingRsvpItem
   );
 
   const hasUnsavedChanges =
     isClubInfoDirty ||
+    isSiteSettingsDirty ||
     isNewsDirty ||
+    isSponsorsDirty ||
     isEventsDirty ||
     isProjectsDirty ||
     isAlbumsDirty ||
@@ -624,7 +709,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
   const handleDiscardAllChanges = () => {
     setDraftClubInfo(clubInfo);
+    setDraftSiteSettings(siteSettings);
     setDraftNews(newsArticles);
+    setDraftSponsors(sponsors);
     setDraftEvents(events);
     setDraftProjects(projects);
     setDraftAlbums(galleryAlbums);
@@ -634,6 +721,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
     setDraftCreds(creds);
     setEditingNews(null);
     setIsCreatingNews(false);
+    setEditingSponsor(null);
+    setIsCreatingSponsor(false);
     setEditingEvent(null);
     setIsCreatingEvent(false);
     setNewHighlightText('');
@@ -653,6 +742,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
   const handleSaveAllAdminChanges = (customToastMessage?: string): boolean => {
     let nextNews = [...draftNews];
+    let nextSponsors = [...draftSponsors];
     let nextEvents = [...draftEvents];
     let nextProjects = [...draftProjects];
     let nextAlbums = [...draftAlbums];
@@ -682,6 +772,38 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
       setDraftNews(nextNews);
       setIsCreatingNews(false);
       setEditingNews(null);
+    }
+
+    // 1b. Validate & commit open Sponsor modal if present
+    if (editingSponsor) {
+      if (!editingSponsor.name.trim()) {
+        showToast('Informe o nome da empresa ou parceiro patrocinador.', 'error');
+        return false;
+      }
+      const finalSponsor: Sponsor = {
+        ...editingSponsor,
+        id: isCreatingSponsor || !editingSponsor.id ? `patrocinador-${Date.now()}` : editingSponsor.id,
+        tierLabel:
+          editingSponsor.tierLabel ||
+          (editingSponsor.tier === 'master'
+            ? 'Patrocinador Master'
+            : editingSponsor.tier === 'ouro'
+            ? 'Patrocinador Ouro'
+            : editingSponsor.tier === 'prata'
+            ? 'Patrocinador Prata'
+            : editingSponsor.tier === 'bronze'
+            ? 'Patrocinador Bronze'
+            : 'Apoio Institucional'),
+      };
+      if (isCreatingSponsor || !editingSponsor.id) {
+        nextSponsors = [...nextSponsors, finalSponsor];
+      } else {
+        nextSponsors = nextSponsors.map((s) => (s.id === finalSponsor.id ? finalSponsor : s));
+      }
+      nextSponsors.sort((a, b) => (a.order || 0) - (b.order || 0));
+      setDraftSponsors(nextSponsors);
+      setIsCreatingSponsor(false);
+      setEditingSponsor(null);
     }
 
     // 2. Validate & commit open Event modal if present (auto-including any typed highlight/prerequisite)
@@ -859,17 +981,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
       localStorage.setItem('vitalizar_admin_credentials', JSON.stringify(draftCreds));
     }
 
-    // 8. Persist all data to ClubDataContext and localStorage
+    // 8. Persist all data to ClubDataContext, localStorage and Firestore
     const savedOk = saveAdminChanges({
       clubInfo: draftClubInfo,
+      siteSettings: draftSiteSettings,
       newsArticles: nextNews,
+      sponsors: nextSponsors,
       events: nextEvents,
       projects: nextProjects,
       galleryAlbums: nextAlbums,
       transparencyDocs: nextDocs,
       rsvps: nextRsvps,
       contactMessages: draftMessages,
-      toastMessage: customToastMessage || 'Alterações salvas com sucesso!',
+      toastMessage: customToastMessage || 'Alterações salvas no banco de dados e publicadas!',
     });
 
     return savedOk;
@@ -895,27 +1019,107 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
     return () => clearInterval(timer);
   }, [session, showToast]);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError(null);
+    setIsAuthenticatingFirebase(true);
 
-    const result = validateAdminCredentials(loginEmail, loginPass, creds, rateLimit);
-    setRateLimit(result.updatedRateLimit);
-    localStorage.setItem('vitalizar_admin_ratelimit', JSON.stringify(result.updatedRateLimit));
+    try {
+      // 1. Attempt Firebase Email/Password Authentication first if configured
+      try {
+        const fbUser = await loginWithEmailPasswordFirebase(loginEmail, loginPass);
+        if (fbUser) {
+          const authCheck = await verifyFirebaseAdminAccess(fbUser, creds.email);
+          if (!authCheck.authorized) {
+            await logoutFirebaseAdmin();
+            setLoginError(
+              authCheck.reason ||
+                `Acesso restrito: a conta "${fbUser.email}" não possui credenciais administrativas autorizadas.`
+            );
+            return;
+          }
+          const now = Date.now();
+          const fbSession: AdminSession = {
+            token: `FB-ADM-${Math.random().toString(36).slice(2, 10).toUpperCase()}-${now.toString(36).toUpperCase()}`,
+            createdAt: now,
+            expiresAt: now + 2 * 60 * 60 * 1000,
+            adminEmail: fbUser.email || loginEmail.trim(),
+          };
+          const resetLimit = { failedAttempts: 0, lockedUntil: null };
+          setRateLimit(resetLimit);
+          localStorage.setItem('vitalizar_admin_ratelimit', JSON.stringify(resetLimit));
+          setSession(fbSession);
+          sessionStorage.setItem('vitalizar_admin_session', JSON.stringify(fbSession));
+          showToast('Autenticado via Firebase Auth! Bem-vindo ao Painel Vitalizar.', 'success');
+          return;
+        }
+      } catch {
+        // Fallback to institutional admin credentials check
+      }
 
-    if (result.success && result.session) {
-      setSession(result.session);
-      sessionStorage.setItem('vitalizar_admin_session', JSON.stringify(result.session));
-      showToast('Bem-vindo ao Painel de Controle Vitalizar!', 'success');
-    } else {
-      setLoginError(result.reason || 'Credenciais inválidas.');
+      // 2. Institutional Admin Credentials Validation with Rate Limiting
+      const result = validateAdminCredentials(loginEmail, loginPass, creds, rateLimit);
+      setRateLimit(result.updatedRateLimit);
+      localStorage.setItem('vitalizar_admin_ratelimit', JSON.stringify(result.updatedRateLimit));
+
+      if (result.success && result.session) {
+        setSession(result.session);
+        sessionStorage.setItem('vitalizar_admin_session', JSON.stringify(result.session));
+        showToast('Bem-vindo ao Painel de Controle Vitalizar!', 'success');
+      } else {
+        setLoginError(result.reason || 'Credenciais administrativas inválidas.');
+      }
+    } finally {
+      setIsAuthenticatingFirebase(false);
     }
   };
 
-  const handleLogout = () => {
+  const handleGoogleAdminLogin = async () => {
+    setLoginError(null);
+    setIsAuthenticatingFirebase(true);
+    try {
+      const user = await loginWithGoogleAdmin();
+      if (user) {
+        const authCheck = await verifyFirebaseAdminAccess(user, creds.email);
+        if (!authCheck.authorized) {
+          await logoutFirebaseAdmin();
+          setLoginError(
+            authCheck.reason ||
+              `Acesso negado: a conta Google "${user.email}" não possui permissão de administrador neste projeto.`
+          );
+          return;
+        }
+        const now = Date.now();
+        const googleSession: AdminSession = {
+          token: `FB-GGL-${Math.random().toString(36).slice(2, 10).toUpperCase()}-${now.toString(36).toUpperCase()}`,
+          createdAt: now,
+          expiresAt: now + 2 * 60 * 60 * 1000,
+          adminEmail: user.email || creds.email,
+        };
+        const resetLimit = { failedAttempts: 0, lockedUntil: null };
+        setRateLimit(resetLimit);
+        localStorage.setItem('vitalizar_admin_ratelimit', JSON.stringify(resetLimit));
+        setSession(googleSession);
+        sessionStorage.setItem('vitalizar_admin_session', JSON.stringify(googleSession));
+        showToast(`Autenticado no Firebase como ${user.email}!`, 'success');
+      }
+    } catch (err: any) {
+      if (
+        err?.code !== 'auth/popup-closed-by-user' &&
+        err?.code !== 'auth/cancelled-popup-request'
+      ) {
+        setLoginError('Não foi possível autenticar com o Google Firebase. Tente novamente.');
+      }
+    } finally {
+      setIsAuthenticatingFirebase(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    await logoutFirebaseAdmin();
     setSession(null);
     sessionStorage.removeItem('vitalizar_admin_session');
-    showToast('Sessão encerrada com segurança.');
+    showToast('Sessão administrativa encerrada com segurança.');
   };
 
   const requestPinProtectedAction = (action: () => void) => {
@@ -1094,10 +1298,33 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
                 <button
                   type="submit"
-                  className="w-full py-3 bg-[#0a1e36] hover:bg-[#0284c7] text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-lg transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-2 border border-sky-400/30"
+                  disabled={isAuthenticatingFirebase}
+                  className="w-full py-3 bg-[#0a1e36] hover:bg-[#0284c7] disabled:opacity-60 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-lg transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-2 border border-sky-400/30"
                 >
                   <Unlock className="w-4 h-4 text-[#38bdf8]" />
-                  <span>Autenticar com Segurança</span>
+                  <span>
+                    {isAuthenticatingFirebase
+                      ? 'Verificando Credenciais...'
+                      : 'Autenticar com Credenciais'}
+                  </span>
+                </button>
+
+                <div className="relative flex py-1 items-center">
+                  <div className="flex-grow border-t border-slate-200" />
+                  <span className="flex-shrink mx-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Ou Firebase Auth
+                  </span>
+                  <div className="flex-grow border-t border-slate-200" />
+                </div>
+
+                <button
+                  type="button"
+                  disabled={isAuthenticatingFirebase}
+                  onClick={handleGoogleAdminLogin}
+                  className="w-full py-2.5 bg-white hover:bg-slate-50 text-[#0a1e36] font-bold text-xs rounded-xl border border-slate-300 shadow-xs transition-all cursor-pointer flex items-center justify-center gap-2"
+                >
+                  <Cloud className="w-4 h-4 text-[#0284c7]" />
+                  <span>Entrar com Conta Google Admin (Firebase)</span>
                 </button>
               </form>
             )}
@@ -1106,17 +1333,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
             <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
               <span className="flex items-center gap-1">
                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Sessão com Token e Timeout</span>
+                <span>Acesso Restrito a Administradores</span>
               </span>
               <button
                 type="button"
                 onClick={() => {
-                  setLoginEmail('admin@vitalizar.org.br');
-                  setLoginPass('vitalizar2026!');
+                  setLoginEmail(creds.email || 'admin@vitalizar.org.br');
+                  setLoginPass(creds.passwordHashOrPlain || 'vitalizar2026!');
                 }}
                 className="text-[#0284c7] hover:underline font-bold cursor-pointer"
               >
-                Preencher Acesso Demo
+                Preencher Credencial Admin
               </button>
             </div>
           </div>
@@ -1166,6 +1393,46 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
         </div>
 
         <div className="flex items-center gap-2 sm:gap-2.5">
+          {/* Cloud Connection Badge */}
+          <div
+            className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 bg-emerald-950/70 border border-emerald-500/40 text-emerald-300 rounded-lg text-[10px] font-bold"
+            title="Conectado ao Firestore: ceremonial-amulet-314dk"
+          >
+            <Cloud className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Firestore Conectado</span>
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+          </div>
+
+          {/* Firebase Google Auth Button */}
+          {firebaseUser ? (
+            <div
+              className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 bg-sky-950/70 border border-sky-400/40 text-sky-200 rounded-lg text-[10px] font-semibold"
+              title={`Autenticado no Firebase Auth: ${firebaseUser.email}`}
+            >
+              <ShieldCheck className="w-3 h-3 text-emerald-400" />
+              <span className="max-w-[130px] truncate">{firebaseUser.email}</span>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  const user = await loginWithGoogleAdmin();
+                  if (user) {
+                    showToast(`Conectado ao Firebase Auth como ${user.email}!`, 'success');
+                  }
+                } catch (err: any) {
+                  showToast('Falha na autenticação Google ou janela fechada.', 'info');
+                }
+              }}
+              className="hidden xl:inline-flex items-center gap-1.5 px-2.5 py-1 bg-white/10 hover:bg-white/20 text-sky-200 hover:text-white rounded-lg text-[10px] font-bold border border-sky-400/30 cursor-pointer transition-colors"
+              title="Conectar com conta Google autorizada no Firebase"
+            >
+              <ShieldCheck className="w-3 h-3 text-[#38bdf8]" />
+              <span>Login Google Cloud</span>
+            </button>
+          )}
+
           {hasUnsavedChanges && (
             <button
               type="button"
@@ -1227,58 +1494,108 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
             mobileNavOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full md:translate-x-0'
           }`}
         >
-          <nav className="p-3 space-y-1" aria-label="Navegação administrativa">
+          <nav className="p-3 space-y-4" aria-label="Navegação administrativa">
             {[
-              { id: 'dashboard', label: 'Visão Geral', icon: LayoutDashboard, badge: null },
-              { id: 'institucional', label: 'Dados da Entidade', icon: Building2, badge: isClubInfoDirty ? '•' : null },
-              { id: 'noticias', label: 'Notícias & Anexos', icon: Newspaper, badge: draftNews.length },
-              { id: 'eventos', label: 'Calendário & Clínicas', icon: CalendarDays, badge: draftEvents.length },
-              { id: 'projetos', label: 'Projetos Esportivos', icon: FolderKanban, badge: draftProjects.length },
-              { id: 'galeria', label: 'Galeria de Fotos', icon: Camera, badge: draftAlbums.length },
-              { id: 'transparencia', label: 'Transparência & PDFs', icon: FileText, badge: draftDocs.length },
-              { id: 'inscricoes', label: 'Inscrições & RSVPs', icon: Users, badge: draftRsvps.length },
-              { id: 'mensagens', label: 'Contatos & Ouvidoria', icon: Mail, badge: draftMessages.filter((m) => !m.read).length || null },
-              { id: 'seguranca', label: 'Segurança & Senha', icon: KeyRound, badge: isCredsDirty ? '•' : null },
-              { id: 'backup', label: 'Backup & Restauração', icon: RefreshCw, badge: null },
-            ].map((item) => {
-              const Icon = item.icon;
-              const isActive = activeTab === item.id;
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => {
-                    setActiveTab(item.id as any);
-                    setMobileNavOpen(false);
-                  }}
-                  className={`w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider flex items-center justify-between transition-all cursor-pointer ${
-                    isActive
-                      ? 'bg-[#0284c7] text-white shadow-md'
-                      : 'text-sky-100/80 hover:text-white hover:bg-white/10'
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-sky-300'}`} />
-                    <span>{item.label}</span>
-                  </div>
-                  {item.badge !== null && item.badge !== undefined && (
-                    <span
-                      className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
-                        isActive ? 'bg-white text-[#0a1e36]' : 'bg-sky-950 text-sky-300 border border-sky-800'
+              {
+                group: 'Governança & Site',
+                items: [
+                  { id: 'dashboard', label: 'Visão Geral', icon: LayoutDashboard, badge: null },
+                  {
+                    id: 'configuracoes',
+                    label: 'Configurações do Site',
+                    icon: Settings,
+                    badge: isSiteSettingsDirty ? '•' : null,
+                  },
+                  {
+                    id: 'institucional',
+                    label: 'Dados da Entidade',
+                    icon: Building2,
+                    badge: isClubInfoDirty ? '•' : null,
+                  },
+                ],
+              },
+              {
+                group: 'Conteúdo & Portal',
+                items: [
+                  { id: 'noticias', label: 'Notícias & Anexos', icon: Newspaper, badge: draftNews.length },
+                  {
+                    id: 'patrocinadores',
+                    label: 'Patrocinadores & Apoio',
+                    icon: HeartHandshake,
+                    badge: draftSponsors.length,
+                  },
+                  { id: 'eventos', label: 'Calendário & Clínicas', icon: CalendarDays, badge: draftEvents.length },
+                  { id: 'projetos', label: 'Projetos Esportivos', icon: FolderKanban, badge: draftProjects.length },
+                  { id: 'galeria', label: 'Galeria de Fotos', icon: Camera, badge: draftAlbums.length },
+                  { id: 'transparencia', label: 'Transparência & PDFs', icon: FileText, badge: draftDocs.length },
+                ],
+              },
+              {
+                group: 'Comunidade & Sistema',
+                items: [
+                  { id: 'inscricoes', label: 'Inscrições & RSVPs', icon: Users, badge: draftRsvps.length },
+                  {
+                    id: 'mensagens',
+                    label: 'Contatos & Ouvidoria',
+                    icon: Mail,
+                    badge: draftMessages.filter((m) => !m.read).length || null,
+                  },
+                  { id: 'seguranca', label: 'Segurança & Acesso', icon: KeyRound, badge: isCredsDirty ? '•' : null },
+                  { id: 'backup', label: 'Backup & Restauração', icon: RefreshCw, badge: null },
+                ],
+              },
+            ].map((section) => (
+              <div key={section.group} className="space-y-1">
+                <span className="px-3 text-[10px] font-black uppercase tracking-widest text-sky-400/70 block">
+                  {section.group}
+                </span>
+                {section.items.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = activeTab === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => {
+                        setActiveTab(item.id as any);
+                        setMobileNavOpen(false);
+                      }}
+                      className={`w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider flex items-center justify-between transition-all cursor-pointer ${
+                        isActive
+                          ? 'bg-[#0284c7] text-white shadow-md'
+                          : 'text-sky-100/80 hover:text-white hover:bg-white/10'
                       }`}
                     >
-                      {item.badge}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
+                      <div className="flex items-center gap-2.5">
+                        <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-sky-300'}`} />
+                        <span>{item.label}</span>
+                      </div>
+                      {item.badge !== null && item.badge !== undefined && (
+                        <span
+                          className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
+                            isActive ? 'bg-white text-[#0a1e36]' : 'bg-sky-950 text-sky-300 border border-sky-800'
+                          }`}
+                        >
+                          {item.badge}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
           </nav>
 
           {/* Quick System Info in Sidebar Footer */}
           <div className="p-3 border-t border-sky-950/80 text-[10px] text-sky-300/70 space-y-1">
             <span className="block font-bold text-white">Associação Vitalizar</span>
             <span className="block">CNPJ: {draftClubInfo.cnpj}</span>
-            <span className="block text-[#38bdf8]">Salvamento explícito por confirmação</span>
+            <div className="flex items-center gap-1.5 text-emerald-400 font-semibold pt-0.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block animate-pulse" />
+              <span>Firebase Firestore Ativo</span>
+            </div>
+            <span className="block text-sky-400/80 font-mono text-[9px] truncate">
+              ceremonial-amulet-314dk
+            </span>
           </div>
         </aside>
 
@@ -1376,17 +1693,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                     <span>+ Anexar Documento MROSC</span>
                   </button>
                   <button
-                    onClick={() => setActiveTab('galeria')}
+                    onClick={() => setActiveTab('configuracoes')}
                     className="px-4 py-2 bg-[#0a1e36] hover:bg-[#0d2746] text-white text-xs font-bold uppercase rounded-xl transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
                   >
-                    <Camera className="w-3.5 h-3.5 text-[#38bdf8]" />
-                    <span>Gerenciar Galeria</span>
+                    <Settings className="w-3.5 h-3.5 text-[#38bdf8]" />
+                    <span>Configurações & Categorias</span>
                   </button>
                 </div>
               </div>
 
               {/* Metric Cards Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
                 <div
                   onClick={() => setActiveTab('eventos')}
                   className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-sky-300 shadow-xs space-y-2 cursor-pointer transition-all"
@@ -1426,6 +1743,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   <div className="text-3xl font-black text-[#0a1e36]">{draftNews.length}</div>
                   <span className="text-[11px] text-slate-500 block">
                     Artigos e comunicados
+                  </span>
+                </div>
+
+                <div
+                  onClick={() => setActiveTab('patrocinadores')}
+                  className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-sky-300 shadow-xs space-y-2 cursor-pointer transition-all"
+                >
+                  <div className="flex items-center justify-between text-slate-500">
+                    <span className="text-xs font-bold uppercase">Parcerias</span>
+                    <HeartHandshake className="w-5 h-5 text-amber-600" />
+                  </div>
+                  <div className="text-3xl font-black text-[#0a1e36]">{draftSponsors.length}</div>
+                  <span className="text-[11px] text-slate-500 block">
+                    {draftSponsors.filter((s) => s.active).length} ativos no portal
                   </span>
                 </div>
 
@@ -1816,6 +2147,713 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
           )}
 
           {/* ========================================================================= */}
+          {/* TAB 2B: CONFIGURAÇÕES DO SITE (CATEGORIAS, TAGS, AVISOS E MÓDULOS) */}
+          {/* ========================================================================= */}
+          {activeTab === 'configuracoes' && (
+            <div className="space-y-6">
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <span className="text-xs font-bold text-[#0284c7] uppercase tracking-wider">
+                    Taxonomia, Módulos & Avisos do Portal
+                  </span>
+                  <h2 className="text-xl font-black text-[#0a1e36] uppercase mt-0.5">
+                    Configurações Gerais do Site, Categorias e Tags
+                  </h2>
+                  <p className="text-xs text-slate-600 mt-1">
+                    Gerencie todas as categorias editoriais, tags, sugestões de busca, assuntos de contato, faixa de aviso no topo e módulos visíveis no portal.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  {isSiteSettingsDirty && (
+                    <button
+                      type="button"
+                      onClick={() => setDraftSiteSettings(siteSettings)}
+                      className="px-4 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs uppercase rounded-xl cursor-pointer"
+                    >
+                      Descartar
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleSaveAllAdminChanges('Configurações do site, categorias e tags salvas no Firebase!')
+                    }
+                    className="px-5 py-2.5 bg-[#0284c7] hover:bg-[#0369a1] text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-md transition-all cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Save className="w-4 h-4" />
+                    <span>Salvar Configurações</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* 1. Banner de Comunicado no Topo */}
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-sky-50 border border-sky-200 text-[#0284c7] flex items-center justify-center">
+                      <Megaphone className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="font-black text-sm text-[#0a1e36] uppercase">
+                        Faixa de Comunicado / Aviso no Topo do Site
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        Exibe um alerta oficial acima do cabeçalho em todas as páginas (ex.: abertura de inscrições, editais ou comunicados).
+                      </p>
+                    </div>
+                  </div>
+                  <label className="inline-flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={draftSiteSettings.announcementBanner.enabled}
+                      onChange={(e) =>
+                        setDraftSiteSettings({
+                          ...draftSiteSettings,
+                          announcementBanner: {
+                            ...draftSiteSettings.announcementBanner,
+                            enabled: e.target.checked,
+                          },
+                        })
+                      }
+                      className="w-4 h-4 accent-[#0284c7] rounded cursor-pointer"
+                    />
+                    <span className="text-xs font-bold uppercase text-slate-700">
+                      {draftSiteSettings.announcementBanner.enabled ? 'Ativo no Site' : 'Desativado'}
+                    </span>
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-4 text-xs">
+                  <div className="md:col-span-6">
+                    <label className="block font-bold text-slate-700 uppercase mb-1">
+                      Texto do Comunicado
+                    </label>
+                    <input
+                      type="text"
+                      value={draftSiteSettings.announcementBanner.text}
+                      onChange={(e) =>
+                        setDraftSiteSettings({
+                          ...draftSiteSettings,
+                          announcementBanner: {
+                            ...draftSiteSettings.announcementBanner,
+                            text: e.target.value,
+                          },
+                        })
+                      }
+                      placeholder="Ex: Inscrições gratuitas abertas para as turmas de 2026!"
+                      className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg"
+                    />
+                  </div>
+                  <div className="md:col-span-3">
+                    <label className="block font-bold text-slate-700 uppercase mb-1">
+                      Texto do Botão (Opcional)
+                    </label>
+                    <input
+                      type="text"
+                      value={draftSiteSettings.announcementBanner.linkLabel || ''}
+                      onChange={(e) =>
+                        setDraftSiteSettings({
+                          ...draftSiteSettings,
+                          announcementBanner: {
+                            ...draftSiteSettings.announcementBanner,
+                            linkLabel: e.target.value,
+                          },
+                        })
+                      }
+                      placeholder="Ex: Inscrever-se Agora"
+                      className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg"
+                    />
+                  </div>
+                  <div className="md:col-span-3">
+                    <label className="block font-bold text-slate-700 uppercase mb-1">
+                      Destino ao Clicar
+                    </label>
+                    <select
+                      value={draftSiteSettings.announcementBanner.linkTarget || 'inscricoes'}
+                      onChange={(e) =>
+                        setDraftSiteSettings({
+                          ...draftSiteSettings,
+                          announcementBanner: {
+                            ...draftSiteSettings.announcementBanner,
+                            linkTarget: e.target.value,
+                          },
+                        })
+                      }
+                      className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg"
+                    >
+                      <option value="inscricoes">Modal de Inscrições / Agendamento</option>
+                      <option value="eventos">Página de Calendário & Eventos</option>
+                      <option value="projetos">Página de Projetos Esportivos</option>
+                      <option value="noticias">Página de Notícias</option>
+                      <option value="patrocinadores">Página de Patrocinadores</option>
+                      <option value="transparencia">Portal da Transparência</option>
+                      <option value="contato">Página Fale Conosco</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* 2. Módulos e Recursos Visíveis no Site */}
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
+                <div className="flex items-center gap-2.5 border-b border-slate-100 pb-3">
+                  <div className="w-9 h-9 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 flex items-center justify-center">
+                    <Globe className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-black text-sm text-[#0a1e36] uppercase">
+                      Módulos e Seções Disponíveis no Portal
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Habilite ou desabilite recursos interativos e seções públicas do site em tempo real.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
+                  {[
+                    {
+                      key: 'enableSponsorsSection' as const,
+                      title: 'Seção de Patrocinadores',
+                      desc: 'Exibe a vitrine de parceiros e apoiadores na página inicial.',
+                    },
+                    {
+                      key: 'enableFloatingWhatsapp' as const,
+                      title: 'Botão Flutuante WhatsApp',
+                      desc: 'Exibe o atalho rápido de atendimento via WhatsApp no canto inferior.',
+                    },
+                    {
+                      key: 'enableSearch' as const,
+                      title: 'Busca Global Inteligente',
+                      desc: 'Permite pesquisar notícias, eventos, projetos, parceiros e PDFs.',
+                    },
+                    {
+                      key: 'enableRsvpModal' as const,
+                      title: 'Inscrições Online (RSVP)',
+                      desc: 'Habilita o formulário de reserva de vagas para eventos e oficinas.',
+                    },
+                  ].map((mod) => (
+                    <label
+                      key={mod.key}
+                      className={`p-4 rounded-xl border transition-all cursor-pointer flex flex-col justify-between gap-3 ${
+                        draftSiteSettings[mod.key]
+                          ? 'bg-sky-50/60 border-sky-300'
+                          : 'bg-slate-50 border-slate-200 opacity-75'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-black text-[#0a1e36] uppercase">{mod.title}</span>
+                        <input
+                          type="checkbox"
+                          checked={draftSiteSettings[mod.key]}
+                          onChange={(e) =>
+                            setDraftSiteSettings({
+                              ...draftSiteSettings,
+                              [mod.key]: e.target.checked,
+                            })
+                          }
+                          className="w-4 h-4 accent-[#0284c7] rounded cursor-pointer"
+                        />
+                      </div>
+                      <p className="text-[11px] text-slate-600 leading-relaxed">{mod.desc}</p>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* 3. Gestão de Categorias e Tags do Site */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Categorias de Notícias */}
+                <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
+                  <div>
+                    <h3 className="font-black text-sm text-[#0a1e36] uppercase flex items-center gap-2">
+                      <Newspaper className="w-4 h-4 text-[#0284c7]" />
+                      <span>Categorias de Notícias ({(draftSiteSettings.newsCategories || []).length})</span>
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Categorias disponíveis ao publicar matérias e nos filtros de notícias do portal.
+                    </p>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newNewsCategory}
+                      onChange={(e) => setNewNewsCategory(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          const val = newNewsCategory.trim();
+                          const list = draftSiteSettings.newsCategories || [];
+                          if (val && !list.includes(val)) {
+                            setDraftSiteSettings({
+                              ...draftSiteSettings,
+                              newsCategories: [...list, val],
+                            });
+                            setNewNewsCategory('');
+                          }
+                        }
+                      }}
+                      placeholder="Nova categoria de notícia..."
+                      className="flex-1 text-xs p-2.5 bg-slate-50 border border-slate-300 rounded-xl"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const val = newNewsCategory.trim();
+                        if (!val) return;
+                        const list = draftSiteSettings.newsCategories || [];
+                        if (list.includes(val)) {
+                          showToast('Esta categoria já existe.', 'info');
+                          return;
+                        }
+                        setDraftSiteSettings({
+                          ...draftSiteSettings,
+                          newsCategories: [...list, val],
+                        });
+                        setNewNewsCategory('');
+                      }}
+                      className="px-4 py-2 bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-bold uppercase rounded-xl cursor-pointer"
+                    >
+                      + Adicionar
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {(draftSiteSettings.newsCategories || []).map((cat) => (
+                      <span
+                        key={cat}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-sky-50 text-[#0a1e36] border border-sky-200 rounded-xl text-xs font-bold"
+                      >
+                        <span>{cat}</span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDraftSiteSettings({
+                              ...draftSiteSettings,
+                              newsCategories: (draftSiteSettings.newsCategories || []).filter((c) => c !== cat),
+                            })
+                          }
+                          className="text-slate-400 hover:text-rose-600 font-black cursor-pointer"
+                          title="Remover categoria"
+                        >
+                          ✕
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Tags Oficiais do Site */}
+                <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
+                  <div>
+                    <h3 className="font-black text-sm text-[#0a1e36] uppercase flex items-center gap-2">
+                      <Tag className="w-4 h-4 text-[#0284c7]" />
+                      <span>Tags & Palavras-Chave do Site ({(draftSiteSettings.siteTags || []).length})</span>
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Tags disponíveis para classificar notícias, projetos e indexar na busca global.
+                    </p>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newSiteTag}
+                      onChange={(e) => setNewSiteTag(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          const val = newSiteTag.trim().replace(/^#/, '');
+                          const list = draftSiteSettings.siteTags || [];
+                          if (val && !list.includes(val)) {
+                            setDraftSiteSettings({
+                              ...draftSiteSettings,
+                              siteTags: [...list, val],
+                            });
+                            setNewSiteTag('');
+                          }
+                        }
+                      }}
+                      placeholder="Nova tag (ex: Futsal, MROSC, Sub-15)..."
+                      className="flex-1 text-xs p-2.5 bg-slate-50 border border-slate-300 rounded-xl"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const val = newSiteTag.trim().replace(/^#/, '');
+                        if (!val) return;
+                        const list = draftSiteSettings.siteTags || [];
+                        if (list.includes(val)) {
+                          showToast('Esta tag já está cadastrada.', 'info');
+                          return;
+                        }
+                        setDraftSiteSettings({
+                          ...draftSiteSettings,
+                          siteTags: [...list, val],
+                        });
+                        setNewSiteTag('');
+                      }}
+                      className="px-4 py-2 bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-bold uppercase rounded-xl cursor-pointer"
+                    >
+                      + Adicionar
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {(draftSiteSettings.siteTags || []).map((tag) => (
+                      <span
+                        key={tag}
+                        className="inline-flex items-center gap-1.5 px-3 py-1 bg-slate-100 text-slate-700 border border-slate-200 rounded-full text-xs font-bold"
+                      >
+                        <span className="text-[#0284c7]">#</span>
+                        <span>{tag}</span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDraftSiteSettings({
+                              ...draftSiteSettings,
+                              siteTags: (draftSiteSettings.siteTags || []).filter((t) => t !== tag),
+                            })
+                          }
+                          className="text-slate-400 hover:text-rose-600 font-black cursor-pointer ml-0.5"
+                          title="Remover tag"
+                        >
+                          ✕
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Sugestões Rápidas de Busca */}
+                <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
+                  <div>
+                    <h3 className="font-black text-sm text-[#0a1e36] uppercase flex items-center gap-2">
+                      <Search className="w-4 h-4 text-[#0284c7]" />
+                      <span>Sugestões Rápidas na Busca ({(draftSiteSettings.searchSuggestions || []).length})</span>
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Termos em destaque exibidos quando o visitante abre a barra de pesquisa do portal.
+                    </p>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newSearchSuggestion}
+                      onChange={(e) => setNewSearchSuggestion(e.target.value)}
+                      placeholder="Novo termo sugerido na busca..."
+                      className="flex-1 text-xs p-2.5 bg-slate-50 border border-slate-300 rounded-xl"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const val = newSearchSuggestion.trim();
+                        if (!val) return;
+                        const list = draftSiteSettings.searchSuggestions || [];
+                        if (!list.includes(val)) {
+                          setDraftSiteSettings({
+                            ...draftSiteSettings,
+                            searchSuggestions: [...list, val],
+                          });
+                        }
+                        setNewSearchSuggestion('');
+                      }}
+                      className="px-4 py-2 bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-bold uppercase rounded-xl cursor-pointer"
+                    >
+                      + Adicionar
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {(draftSiteSettings.searchSuggestions || []).map((sug) => (
+                      <span
+                        key={sug}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold"
+                      >
+                        <span>{sug}</span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDraftSiteSettings({
+                              ...draftSiteSettings,
+                              searchSuggestions: (draftSiteSettings.searchSuggestions || []).filter(
+                                (s) => s !== sug
+                              ),
+                            })
+                          }
+                          className="text-slate-400 hover:text-rose-600 font-black cursor-pointer"
+                        >
+                          ✕
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Assuntos do Formulário Fale Conosco */}
+                <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
+                  <div>
+                    <h3 className="font-black text-sm text-[#0a1e36] uppercase flex items-center gap-2">
+                      <Mail className="w-4 h-4 text-[#0284c7]" />
+                      <span>Assuntos do Formulário de Contato ({(draftSiteSettings.contactSubjects || []).length})</span>
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Opções de assunto disponíveis na página Fale Conosco / Ouvidoria.
+                    </p>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newContactSubject}
+                      onChange={(e) => setNewContactSubject(e.target.value)}
+                      placeholder="Novo assunto de atendimento..."
+                      className="flex-1 text-xs p-2.5 bg-slate-50 border border-slate-300 rounded-xl"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const val = newContactSubject.trim();
+                        if (!val) return;
+                        const list = draftSiteSettings.contactSubjects || [];
+                        if (!list.includes(val)) {
+                          setDraftSiteSettings({
+                            ...draftSiteSettings,
+                            contactSubjects: [...list, val],
+                          });
+                        }
+                        setNewContactSubject('');
+                      }}
+                      className="px-4 py-2 bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-bold uppercase rounded-xl cursor-pointer"
+                    >
+                      + Adicionar
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {(draftSiteSettings.contactSubjects || []).map((subj) => (
+                      <span
+                        key={subj}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold"
+                      >
+                        <span>{subj}</span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDraftSiteSettings({
+                              ...draftSiteSettings,
+                              contactSubjects: (draftSiteSettings.contactSubjects || []).filter(
+                                (s) => s !== subj
+                              ),
+                            })
+                          }
+                          className="text-slate-400 hover:text-rose-600 font-black cursor-pointer"
+                        >
+                          ✕
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Categorias de Eventos, Projetos e Galeria */}
+                <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
+                  <div>
+                    <h3 className="font-black text-sm text-[#0a1e36] uppercase flex items-center gap-2">
+                      <CalendarDays className="w-4 h-4 text-[#0284c7]" />
+                      <span>Categorias de Eventos & Projetos</span>
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Categorias utilizadas na agenda de atividades e nos projetos esportivos.
+                    </p>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div>
+                      <span className="text-[11px] font-bold uppercase text-slate-500 block mb-1.5">
+                        Categorias de Eventos:
+                      </span>
+                      <div className="flex gap-2 mb-2">
+                        <input
+                          type="text"
+                          value={newEventCategory}
+                          onChange={(e) => setNewEventCategory(e.target.value)}
+                          placeholder="Nova categoria de evento..."
+                          className="flex-1 text-xs p-2 bg-slate-50 border border-slate-300 rounded-lg"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const val = newEventCategory.trim();
+                            const list = draftSiteSettings.eventCategories || [];
+                            if (val && !list.includes(val)) {
+                              setDraftSiteSettings({
+                                ...draftSiteSettings,
+                                eventCategories: [...list, val],
+                              });
+                              setNewEventCategory('');
+                            }
+                          }}
+                          className="px-3 py-1.5 bg-[#0284c7] text-white text-xs font-bold rounded-lg cursor-pointer"
+                        >
+                          +
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {(draftSiteSettings.eventCategories || []).map((cat) => (
+                          <span
+                            key={cat}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-sky-50 text-[#0a1e36] border border-sky-200 rounded-lg text-xs font-bold"
+                          >
+                            <span>{cat}</span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setDraftSiteSettings({
+                                  ...draftSiteSettings,
+                                  eventCategories: (draftSiteSettings.eventCategories || []).filter(
+                                    (c) => c !== cat
+                                  ),
+                                })
+                              }
+                              className="text-slate-400 hover:text-rose-600 font-black cursor-pointer"
+                            >
+                              ✕
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-100">
+                      <span className="text-[11px] font-bold uppercase text-slate-500 block mb-1.5">
+                        Categorias de Projetos:
+                      </span>
+                      <div className="flex gap-2 mb-2">
+                        <input
+                          type="text"
+                          value={newProjectCategory}
+                          onChange={(e) => setNewProjectCategory(e.target.value)}
+                          placeholder="Nova categoria de projeto..."
+                          className="flex-1 text-xs p-2 bg-slate-50 border border-slate-300 rounded-lg"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const val = newProjectCategory.trim();
+                            const list = draftSiteSettings.projectCategories || [];
+                            if (val && !list.includes(val)) {
+                              setDraftSiteSettings({
+                                ...draftSiteSettings,
+                                projectCategories: [...list, val],
+                              });
+                              setNewProjectCategory('');
+                            }
+                          }}
+                          className="px-3 py-1.5 bg-[#0284c7] text-white text-xs font-bold rounded-lg cursor-pointer"
+                        >
+                          +
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {(draftSiteSettings.projectCategories || []).map((cat) => (
+                          <span
+                            key={cat}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-50 text-emerald-950 border border-emerald-200 rounded-lg text-xs font-bold"
+                          >
+                            <span>{cat}</span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setDraftSiteSettings({
+                                  ...draftSiteSettings,
+                                  projectCategories: (draftSiteSettings.projectCategories || []).filter(
+                                    (c) => c !== cat
+                                  ),
+                                })
+                              }
+                              className="text-slate-400 hover:text-rose-600 font-black cursor-pointer"
+                            >
+                              ✕
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Categorias da Galeria */}
+                <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
+                  <div>
+                    <h3 className="font-black text-sm text-[#0a1e36] uppercase flex items-center gap-2">
+                      <Camera className="w-4 h-4 text-[#0284c7]" />
+                      <span>Categorias da Galeria de Fotos ({(draftSiteSettings.galleryCategories || []).length})</span>
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Filtros de álbuns fotográficos exibidos na seção de Galeria.
+                    </p>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newGalleryCategory}
+                      onChange={(e) => setNewGalleryCategory(e.target.value)}
+                      placeholder="Nova categoria de álbum..."
+                      className="flex-1 text-xs p-2.5 bg-slate-50 border border-slate-300 rounded-xl"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const val = newGalleryCategory.trim();
+                        const list = draftSiteSettings.galleryCategories || [];
+                        if (val && !list.includes(val)) {
+                          setDraftSiteSettings({
+                            ...draftSiteSettings,
+                            galleryCategories: [...list, val],
+                          });
+                          setNewGalleryCategory('');
+                        }
+                      }}
+                      className="px-4 py-2 bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-bold uppercase rounded-xl cursor-pointer"
+                    >
+                      + Adicionar
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {(draftSiteSettings.galleryCategories || []).map((cat) => (
+                      <span
+                        key={cat}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold"
+                      >
+                        <span>{cat}</span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDraftSiteSettings({
+                              ...draftSiteSettings,
+                              galleryCategories: (draftSiteSettings.galleryCategories || []).filter(
+                                (c) => c !== cat
+                              ),
+                            })
+                          }
+                          className="text-slate-400 hover:text-rose-600 font-black cursor-pointer"
+                        >
+                          ✕
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================================= */}
           {/* TAB 3: NOTÍCIAS, MÍDIA & ANEXOS */}
           {/* ========================================================================= */}
           {activeTab === 'noticias' && (() => {
@@ -1902,11 +2940,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                       className="text-xs p-2 bg-slate-50 border border-slate-300 rounded-xl"
                     >
                       <option value="all">Todas as Categorias</option>
-                      <option value="Institucional">Institucional</option>
-                      <option value="Esporte Educacional">Esporte Educacional</option>
-                      <option value="Saúde & Qualidade de Vida">Saúde & Qualidade de Vida</option>
-                      <option value="Voluntariado">Voluntariado</option>
-                      <option value="Transparência">Transparência</option>
+                      {Array.from(
+                        new Set([
+                          ...(draftSiteSettings.newsCategories || []),
+                          ...draftNews.map((n) => n.category),
+                        ])
+                      ).map((cat) => (
+                        <option key={cat} value={cat}>
+                          {cat}
+                        </option>
+                      ))}
                     </select>
                   </div>
                 </div>
@@ -2067,13 +3110,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                 }
                                 className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg"
                               >
-                                <option value="Institucional">Institucional</option>
-                                <option value="Esporte Educacional">Esporte Educacional</option>
-                                <option value="Saúde & Qualidade de Vida">
-                                  Saúde & Qualidade de Vida
-                                </option>
-                                <option value="Voluntariado">Voluntariado</option>
-                                <option value="Transparência">Transparência</option>
+                                {Array.from(
+                                  new Set([
+                                    ...(draftSiteSettings.newsCategories || []),
+                                    editingNews.category,
+                                  ].filter(Boolean))
+                                ).map((cat) => (
+                                  <option key={cat} value={cat}>
+                                    {cat}
+                                  </option>
+                                ))}
                               </select>
                             </div>
 
@@ -2089,6 +3135,81 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                 }
                                 className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg"
                               />
+                            </div>
+                          </div>
+
+                          {/* Tags Selection for Article */}
+                          <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                            <div className="flex items-center justify-between">
+                              <label className="block font-bold text-slate-700 uppercase">
+                                Tags da Matéria ({(editingNews.tags || []).length} selecionadas)
+                              </label>
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="text"
+                                  value={newArticleTagInput}
+                                  onChange={(e) => setNewArticleTagInput(e.target.value)}
+                                  placeholder="Nova tag..."
+                                  className="text-xs px-2.5 py-1 bg-white border border-slate-300 rounded-lg w-36"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const val = newArticleTagInput.trim().replace(/^#/, '');
+                                    if (!val) return;
+                                    const currentTags = editingNews.tags || [];
+                                    if (!currentTags.includes(val)) {
+                                      setEditingNews({
+                                        ...editingNews,
+                                        tags: [...currentTags, val],
+                                      });
+                                    }
+                                    const siteTagList = draftSiteSettings.siteTags || [];
+                                    if (!siteTagList.includes(val)) {
+                                      setDraftSiteSettings({
+                                        ...draftSiteSettings,
+                                        siteTags: [...siteTagList, val],
+                                      });
+                                    }
+                                    setNewArticleTagInput('');
+                                  }}
+                                  className="px-2.5 py-1 bg-[#0284c7] text-white text-xs font-bold rounded-lg cursor-pointer"
+                                >
+                                  + Tag
+                                </button>
+                              </div>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                              {Array.from(
+                                new Set([
+                                  ...(draftSiteSettings.siteTags || []),
+                                  ...(editingNews.tags || []),
+                                ])
+                              ).map((tag) => {
+                                const isSelected = (editingNews.tags || []).includes(tag);
+                                return (
+                                  <button
+                                    key={tag}
+                                    type="button"
+                                    onClick={() => {
+                                      const currentTags = editingNews.tags || [];
+                                      setEditingNews({
+                                        ...editingNews,
+                                        tags: isSelected
+                                          ? currentTags.filter((t) => t !== tag)
+                                          : [...currentTags, tag],
+                                      });
+                                    }}
+                                    className={`px-2.5 py-1 rounded-full text-[11px] font-bold transition-all cursor-pointer ${
+                                      isSelected
+                                        ? 'bg-[#0284c7] text-white shadow-2xs'
+                                        : 'bg-white text-slate-600 border border-slate-200 hover:border-sky-300'
+                                    }`}
+                                  >
+                                    #{tag}
+                                  </button>
+                                );
+                              })}
                             </div>
                           </div>
 
@@ -2380,6 +3501,536 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                             }}
                             className="p-1.5 bg-slate-100 hover:bg-rose-100 text-rose-600 rounded-lg cursor-pointer"
                             title="Excluir notícia"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* ========================================================================= */}
+          {/* TAB 3B: PATROCINADORES & PARCERIAS (COMPLETE CRUD & FIRESTORE SYNC) */}
+          {/* ========================================================================= */}
+          {activeTab === 'patrocinadores' && (() => {
+            const filteredSponsors = draftSponsors.filter((spon) => {
+              const matchTier = sponsorTierFilter === 'all' || spon.tier === sponsorTierFilter;
+              const matchSearch =
+                !sponsorSearch.trim() ||
+                spon.name.toLowerCase().includes(sponsorSearch.toLowerCase()) ||
+                spon.category.toLowerCase().includes(sponsorSearch.toLowerCase()) ||
+                spon.description.toLowerCase().includes(sponsorSearch.toLowerCase());
+              return matchTier && matchSearch;
+            });
+
+            return (
+              <div className="space-y-6">
+                {/* Header Card */}
+                <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-[11px] font-bold text-[#0284c7] uppercase tracking-wider">
+                        Captação & Parcerias
+                      </span>
+                      <span className="text-[10px] bg-sky-50 text-sky-800 border border-sky-200 px-2 py-0.5 rounded-full font-bold">
+                        {draftSponsors.filter((s) => s.active).length} Ativos no Site
+                      </span>
+                    </div>
+                    <h2 className="text-xl font-black text-[#0a1e36] uppercase">
+                      Patrocinadores, Apoio Institucional & Chancela
+                    </h2>
+                    <p className="text-xs text-slate-500 mt-1 max-w-xl">
+                      Cadastre e organize as marcas, parceiros comerciais e órgãos governamentais que apoiam a Associação Vitalizar. Os patrocinadores são exibidos no portal público por nível.
+                    </p>
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      setIsCreatingSponsor(true);
+                      setEditingSponsor({
+                        id: '',
+                        name: '',
+                        tier: 'ouro',
+                        tierLabel: 'Patrocinador Ouro',
+                        logoUrl: 'https://images.unsplash.com/photo-1559526324-4b87b5e36e44?w=400&q=80',
+                        websiteUrl: '',
+                        description: '',
+                        category: 'Empresa Privada',
+                        active: true,
+                        order: draftSponsors.length + 1,
+                      });
+                    }}
+                    className="px-4 py-2.5 bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-bold uppercase rounded-xl transition-all shadow-xs cursor-pointer flex items-center gap-1.5 shrink-0"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>+ Novo Patrocinador</span>
+                  </button>
+                </div>
+
+                {/* Search & Filter Toolbar */}
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                  <div className="relative flex-1 max-w-md">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={sponsorSearch}
+                      onChange={(e) => setSponsorSearch(e.target.value)}
+                      placeholder="Buscar por nome, categoria ou descrição..."
+                      className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-sky-500 focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[11px] font-bold text-slate-500 uppercase">Filtrar:</span>
+                    {(['all', 'master', 'ouro', 'prata', 'bronze', 'apoio'] as const).map((tierKey) => (
+                      <button
+                        key={tierKey}
+                        onClick={() => setSponsorTierFilter(tierKey)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
+                          sponsorTierFilter === tierKey
+                            ? 'bg-[#0a1e36] text-white shadow-xs'
+                            : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                        }`}
+                      >
+                        {tierKey === 'all'
+                          ? 'Todos'
+                          : tierKey === 'master'
+                          ? 'Master'
+                          : tierKey === 'ouro'
+                          ? 'Ouro'
+                          : tierKey === 'prata'
+                          ? 'Prata'
+                          : tierKey === 'bronze'
+                          ? 'Bronze'
+                          : 'Apoio'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* MODAL: ADD / EDIT SPONSOR */}
+                {editingSponsor && (
+                  <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-2xs flex items-center justify-center p-4 overflow-y-auto">
+                    <div className="bg-white rounded-3xl max-w-xl w-full p-6 sm:p-8 space-y-5 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
+                      <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                        <div className="flex items-center gap-2">
+                          <HeartHandshake className="w-5 h-5 text-[#0284c7]" />
+                          <h3 className="font-extrabold text-base text-slate-900">
+                            {isCreatingSponsor ? 'Novo Patrocinador / Parceiro' : 'Editar Patrocinador'}
+                          </h3>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingSponsor(null);
+                            setIsCreatingSponsor(false);
+                          }}
+                          className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 cursor-pointer"
+                        >
+                          <X className="w-5 h-5" />
+                        </button>
+                      </div>
+
+                      <div className="space-y-4 text-xs">
+                        {/* Name & Category */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="block font-bold text-slate-700 uppercase mb-1">
+                              Nome da Empresa / Parceiro *
+                            </label>
+                            <input
+                              type="text"
+                              required
+                              value={editingSponsor.name}
+                              onChange={(e) =>
+                                setEditingSponsor({ ...editingSponsor, name: e.target.value })
+                              }
+                              placeholder="Ex: Sicoob Espírito Santo"
+                              className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg font-semibold"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block font-bold text-slate-700 uppercase mb-1">
+                              Segmento / Categoria *
+                            </label>
+                            <input
+                              type="text"
+                              value={editingSponsor.category}
+                              onChange={(e) =>
+                                setEditingSponsor({ ...editingSponsor, category: e.target.value })
+                              }
+                              placeholder="Ex: Cooperativa Financeira, Material Esportivo"
+                              className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Tier & TierLabel */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="block font-bold text-slate-700 uppercase mb-1">
+                              Nível de Patrocínio *
+                            </label>
+                            <select
+                              value={editingSponsor.tier}
+                              onChange={(e) => {
+                                const newTier = e.target.value as SponsorTier;
+                                const defaultLabel =
+                                  newTier === 'master'
+                                    ? 'Patrocinador Master'
+                                    : newTier === 'ouro'
+                                    ? 'Patrocinador Ouro'
+                                    : newTier === 'prata'
+                                    ? 'Patrocinador Prata'
+                                    : newTier === 'bronze'
+                                    ? 'Patrocinador Bronze'
+                                    : 'Apoio Institucional';
+                                setEditingSponsor({
+                                  ...editingSponsor,
+                                  tier: newTier,
+                                  tierLabel: defaultLabel,
+                                });
+                              }}
+                              className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg font-semibold"
+                            >
+                              <option value="master">Master (Destaque Principal)</option>
+                              <option value="ouro">Ouro</option>
+                              <option value="prata">Prata</option>
+                              <option value="bronze">Bronze</option>
+                              <option value="apoio">Apoio Institucional / Governamental</option>
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="block font-bold text-slate-700 uppercase mb-1">
+                              Título do Nível (Exibição Pública)
+                            </label>
+                            <input
+                              type="text"
+                              value={editingSponsor.tierLabel}
+                              onChange={(e) =>
+                                setEditingSponsor({ ...editingSponsor, tierLabel: e.target.value })
+                              }
+                              placeholder="Ex: Patrocinador Ouro"
+                              className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Logo Upload */}
+                        <ImageUploadField
+                          label="Logotipo do Patrocinador *"
+                          imageUrl={editingSponsor.logoUrl}
+                          onChange={(url: string) =>
+                            setEditingSponsor({ ...editingSponsor, logoUrl: url })
+                          }
+                          onError={(msg: string) => showToast(msg, 'error')}
+                        />
+
+                        {/* Website URL & Order */}
+                        <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                          <div className="sm:col-span-8">
+                            <label className="block font-bold text-slate-700 uppercase mb-1">
+                              Link do Site ou Rede Social Oficial
+                            </label>
+                            <input
+                              type="url"
+                              value={editingSponsor.websiteUrl || ''}
+                              onChange={(e) =>
+                                setEditingSponsor({ ...editingSponsor, websiteUrl: e.target.value })
+                              }
+                              placeholder="https://exemplo.com.br"
+                              className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg font-mono text-[11px]"
+                            />
+                          </div>
+
+                          <div className="sm:col-span-4">
+                            <label className="block font-bold text-slate-700 uppercase mb-1">
+                              Ordem de Exibição
+                            </label>
+                            <input
+                              type="number"
+                              min={1}
+                              max={99}
+                              value={editingSponsor.order || 1}
+                              onChange={(e) =>
+                                setEditingSponsor({
+                                  ...editingSponsor,
+                                  order: parseInt(e.target.value, 10) || 1,
+                                })
+                              }
+                              className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg font-bold"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Description */}
+                        <div>
+                          <label className="block font-bold text-slate-700 uppercase mb-1">
+                            Descrição da Parceria ou Mensagem Institucional
+                          </label>
+                          <textarea
+                            rows={3}
+                            value={editingSponsor.description}
+                            onChange={(e) =>
+                              setEditingSponsor({ ...editingSponsor, description: e.target.value })
+                            }
+                            placeholder="Descreva o apoio oferecido, impacto social ou contrapartida institucional..."
+                            className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg leading-relaxed"
+                          />
+                        </div>
+
+                        {/* Active Switch */}
+                        <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between">
+                          <div>
+                            <span className="font-bold text-slate-800 block">Exibir no Site Público</span>
+                            <span className="text-[11px] text-slate-500">
+                              Se desmarcado, o patrocinador fica salvo no painel sem aparecer aos visitantes.
+                            </span>
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={editingSponsor.active}
+                            onChange={(e) =>
+                              setEditingSponsor({ ...editingSponsor, active: e.target.checked })
+                            }
+                            className="w-5 h-5 accent-sky-600 rounded cursor-pointer"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Modal Footer Buttons */}
+                      <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingSponsor(null);
+                            setIsCreatingSponsor(false);
+                          }}
+                          className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl cursor-pointer"
+                        >
+                          Cancelar
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!editingSponsor.name.trim()) {
+                              showToast('Preencha o nome do patrocinador.', 'error');
+                              return;
+                            }
+                            let next = [...draftSponsors];
+                            const finalSpon: Sponsor = {
+                              ...editingSponsor,
+                              id:
+                                isCreatingSponsor || !editingSponsor.id
+                                  ? `patrocinador-${Date.now()}`
+                                  : editingSponsor.id,
+                            };
+                            if (isCreatingSponsor || !editingSponsor.id) {
+                              next = [...next, finalSpon];
+                            } else {
+                              next = next.map((s) => (s.id === finalSpon.id ? finalSpon : s));
+                            }
+                            next.sort((a, b) => (a.order || 0) - (b.order || 0));
+                            setDraftSponsors(next);
+                            setIsCreatingSponsor(false);
+                            setEditingSponsor(null);
+                            showToast(
+                              'Patrocinador inserido no rascunho. Clique em "Salvar Alterações" para gravar no banco!',
+                              'info'
+                            );
+                          }}
+                          className="px-5 py-2 bg-[#0284c7] hover:bg-[#0369a1] text-white font-bold rounded-xl cursor-pointer shadow-md"
+                        >
+                          Confirmar no Rascunho
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Sponsors Cards List */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {filteredSponsors.map((spon, index) => (
+                    <div
+                      key={spon.id}
+                      className={`bg-white p-5 rounded-2xl border shadow-2xs flex flex-col justify-between transition-all ${
+                        spon.active ? 'border-slate-200 hover:border-sky-300' : 'border-slate-200/60 opacity-60 bg-slate-50/50'
+                      }`}
+                    >
+                      <div>
+                        <div className="flex items-center justify-between gap-2 mb-3">
+                          <span
+                            className={`text-[10px] font-black uppercase px-2.5 py-0.5 rounded-md border ${
+                              spon.tier === 'master'
+                                ? 'bg-amber-100 text-amber-900 border-amber-300'
+                                : spon.tier === 'ouro'
+                                ? 'bg-yellow-100 text-yellow-900 border-yellow-300'
+                                : spon.tier === 'prata'
+                                ? 'bg-slate-100 text-slate-800 border-slate-300'
+                                : spon.tier === 'bronze'
+                                ? 'bg-orange-100 text-orange-900 border-orange-300'
+                                : 'bg-sky-100 text-sky-900 border-sky-300'
+                            }`}
+                          >
+                            {spon.tierLabel}
+                          </span>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated = draftSponsors.map((item) =>
+                                item.id === spon.id ? { ...item, active: !item.active } : item
+                              );
+                              setDraftSponsors(updated);
+                              showToast(
+                                spon.active
+                                  ? `"${spon.name}" desativado do site no rascunho.`
+                                  : `"${spon.name}" reativado no rascunho.`,
+                                'info'
+                              );
+                            }}
+                            className={`text-[10px] px-2 py-0.5 rounded-full font-bold cursor-pointer transition-colors ${
+                              spon.active
+                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                : 'bg-slate-200 text-slate-600'
+                            }`}
+                            title="Alternar visibilidade pública"
+                          >
+                            {spon.active ? '● Ativo' : '○ Inativo'}
+                          </button>
+                        </div>
+
+                        <div className="flex items-center gap-3.5 mb-3">
+                          <div className="w-14 h-14 rounded-xl bg-slate-100 p-1 flex items-center justify-center border border-slate-200 shrink-0 overflow-hidden">
+                            <img
+                              src={spon.logoUrl}
+                              alt={`Logo ${spon.name}`}
+                              className="w-full h-full object-cover rounded-lg"
+                              onError={(e) => {
+                                e.currentTarget.src =
+                                  'https://images.unsplash.com/photo-1541872703-74c5e44368f9?w=400&q=80';
+                              }}
+                            />
+                          </div>
+                          <div className="min-w-0">
+                            <h4 className="font-extrabold text-sm text-slate-900 leading-snug truncate" title={spon.name}>
+                              {spon.name}
+                            </h4>
+                            <span className="text-[11px] text-slate-500 block truncate">
+                              {spon.category}
+                            </span>
+                            <span className="text-[10px] text-slate-400 block font-mono">
+                              Ordem #{spon.order || 1}
+                            </span>
+                          </div>
+                        </div>
+
+                        <p className="text-xs text-slate-600 line-clamp-3 leading-relaxed mb-3">
+                          {spon.description || 'Sem descrição cadastrada.'}
+                        </p>
+                      </div>
+
+                      <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            disabled={index === 0}
+                            onClick={() => {
+                              if (index === 0) return;
+                              const next = [...draftSponsors];
+                              const temp = next[index - 1];
+                              next[index - 1] = next[index];
+                              next[index] = temp;
+                              next.forEach((s, i) => (s.order = i + 1));
+                              setDraftSponsors(next);
+                            }}
+                            className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 rounded hover:bg-slate-100 cursor-pointer"
+                            title="Subir na ordem de exibição"
+                          >
+                            <ArrowUp className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={index === draftSponsors.length - 1}
+                            onClick={() => {
+                              if (index === draftSponsors.length - 1) return;
+                              const next = [...draftSponsors];
+                              const temp = next[index + 1];
+                              next[index + 1] = next[index];
+                              next[index] = temp;
+                              next.forEach((s, i) => (s.order = i + 1));
+                              setDraftSponsors(next);
+                            }}
+                            className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 rounded hover:bg-slate-100 cursor-pointer"
+                            title="Descer na ordem de exibição"
+                          >
+                            <ArrowDown className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        <div className="flex items-center gap-1">
+                          {spon.websiteUrl && (
+                            <a
+                              href={spon.websiteUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="p-1.5 text-slate-400 hover:text-[#0284c7] hover:bg-sky-50 rounded-lg cursor-pointer"
+                              title="Acessar site oficial"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" />
+                            </a>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const duplicated: Sponsor = {
+                                ...spon,
+                                id: `patrocinador-${Date.now()}`,
+                                name: `${spon.name} (Cópia)`,
+                                order: draftSponsors.length + 1,
+                              };
+                              setDraftSponsors((prev) => [...prev, duplicated]);
+                              showToast(`Patrocinador "${spon.name}" duplicado no rascunho.`, 'info');
+                            }}
+                            className="p-1.5 text-slate-400 hover:text-[#0284c7] hover:bg-sky-50 rounded-lg cursor-pointer"
+                            title="Duplicar patrocinador"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingSponsor({ ...spon });
+                              setIsCreatingSponsor(false);
+                            }}
+                            className="p-1.5 text-slate-400 hover:text-[#0284c7] hover:bg-sky-50 rounded-lg cursor-pointer"
+                            title="Editar patrocinador"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              requestPinProtectedAction(() => {
+                                setDraftSponsors((prev) => prev.filter((item) => item.id !== spon.id));
+                                showToast(
+                                  `Remoção de "${spon.name}" marcada no rascunho. Clique em Salvar para persistir.`,
+                                  'info'
+                                );
+                              });
+                            }}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer"
+                            title="Excluir patrocinador"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>

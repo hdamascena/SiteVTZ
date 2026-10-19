@@ -48,6 +48,7 @@ export interface NewsArticle {
   imageUrl: string;
   author?: string;
   views?: number;
+  tags?: string[];
   attachments?: AttachedFile[];
 }
 
@@ -68,7 +69,8 @@ export interface PastEventPhoto {
     | 'Festivais Esportivos'
     | 'Categorias de Base'
     | 'Saúde & Vida Ativa'
-    | 'Inclusão & Comunidade';
+    | 'Inclusão & Comunidade'
+    | string;
   date: string;
   location: string;
   coverUrl: string;
@@ -87,7 +89,8 @@ export interface VitalizarProject {
     | 'saude_qualidade_vida'
     | 'cultura_cidadania'
     | 'inclusao_pcd'
-    | 'terceira_idade';
+    | 'terceira_idade'
+    | string;
   targetAudience: string;
   description: string;
   schedule: string;
@@ -95,6 +98,7 @@ export interface VitalizarProject {
   coordinator: string;
   fundingSource: string;
   imageUrl: string;
+  tags?: string[];
   attachments?: AttachedFile[];
 }
 
@@ -166,3 +170,45 @@ export interface VitalizarEvent {
   status: 'confirmado' | 'inscricoes_abertas' | 'vagas_limitadas' | 'em_breve';
   attachments?: AttachedFile[];
 }
+
+export type SponsorTier = 'master' | 'ouro' | 'prata' | 'bronze' | 'apoio';
+
+export interface Sponsor {
+  id: string;
+  name: string;
+  tier: SponsorTier;
+  tierLabel: string;
+  logoUrl: string;
+  websiteUrl?: string;
+  description: string;
+  category: string;
+  active: boolean;
+  order: number;
+}
+
+export interface SiteSettings {
+  newsCategories: string[];
+  eventCategories: string[];
+  projectCategories: string[];
+  galleryCategories: string[];
+  sponsorCategories: string[];
+  contactSubjects: string[];
+  siteTags: string[];
+  searchSuggestions: string[];
+  announcementBanner: {
+    enabled: boolean;
+    text: string;
+    linkLabel: string;
+    linkTarget: string;
+  };
+  seoTitle: string;
+  seoDescription: string;
+  whatsappNumber: string;
+  enableRegistrations: boolean;
+  enableSponsorsSection: boolean;
+  enableFloatingWhatsapp: boolean;
+  enableSearch: boolean;
+  enableRsvpModal: boolean;
+}
+
+

@@ -12,13 +12,16 @@ interface HeaderProps {
   onOpenInscricoes: () => void;
   onOpenSubpage: (pageId: string, subId?: string) => void;
   onOpenAdmin?: () => void;
+  activePageId?: string | null;
 }
 
 const NAV_LINKS = [
+  { id: 'home', label: 'Início' },
   { id: 'a-vitalizar', label: 'Quem Somos' },
   { id: 'projetos', label: 'Projetos' },
   { id: 'eventos', label: 'Agenda' },
   { id: 'noticias', label: 'Notícias' },
+  { id: 'patrocinadores', label: 'Parceiros' },
   { id: 'transparencia', label: 'Transparência' },
   { id: 'contato', label: 'Contato' },
 ];
@@ -28,6 +31,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenInscricoes,
   onOpenSubpage,
   onOpenAdmin,
+  activePageId = 'home',
 }) => {
   const [isScrolled, setIsScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -53,18 +57,18 @@ export const Header: React.FC<HeaderProps> = ({
           : 'bg-[#061a38] border-b border-sky-900/50'
       }`}
     >
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between gap-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between gap-6">
         {/* Zone 1: Brand Lockup with New 3D Metallic Crest */}
         <button
           type="button"
           onClick={() => handleLinkClick('home')}
-          className="group relative z-50 flex items-center gap-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 rounded-xl py-1 cursor-pointer shrink-0"
+          className="group relative z-50 flex items-center gap-3.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 rounded-xl py-1 cursor-pointer shrink-0"
           aria-label="Ir para a página inicial da Associação Esportiva Vitalizar"
         >
           <img
             src="/logo.png"
             alt="Brasão Associação Esportiva Vitalizar"
-            className="w-24 h-24 sm:w-28 sm:h-28 object-contain translate-y-3 sm:translate-y-4 drop-shadow-[0_10px_20px_rgba(0,0,0,0.6)] transition-transform duration-300 group-hover:scale-105 shrink-0"
+            className="w-20 h-20 sm:w-24 sm:h-24 object-contain translate-y-2.5 sm:translate-y-3 drop-shadow-[0_10px_20px_rgba(0,0,0,0.6)] transition-transform duration-300 group-hover:scale-105 shrink-0"
           />
           <span className="font-display text-white font-extrabold text-xl sm:text-2xl tracking-tight whitespace-nowrap shrink-0">
             VITALIZAR
@@ -73,19 +77,26 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Zone 2: Single-Line Navigation Links */}
         <nav
-          className="hidden lg:flex items-center gap-7"
+          className="hidden lg:flex items-center gap-5 xl:gap-6"
           aria-label="Navegação principal"
         >
-          {NAV_LINKS.map((link) => (
-            <button
-              key={link.id}
-              type="button"
-              onClick={() => handleLinkClick(link.id)}
-              className="text-sm font-semibold text-sky-100/85 hover:text-white transition-colors py-1.5 whitespace-nowrap shrink-0 cursor-pointer relative after:content-[''] after:absolute after:bottom-0 after:left-0 after:w-0 after:h-0.5 after:bg-[#38bdf8] hover:after:w-full after:transition-all"
-            >
-              {link.label}
-            </button>
-          ))}
+          {NAV_LINKS.map((link) => {
+            const isActive = (activePageId || 'home') === link.id;
+            return (
+              <button
+                key={link.id}
+                type="button"
+                onClick={() => handleLinkClick(link.id)}
+                className={`text-sm font-semibold transition-colors py-1.5 whitespace-nowrap shrink-0 cursor-pointer relative after:content-[''] after:absolute after:bottom-0 after:left-0 after:h-0.5 after:bg-[#38bdf8] after:transition-all ${
+                  isActive
+                    ? 'text-white after:w-full'
+                    : 'text-sky-100/80 hover:text-white after:w-0 hover:after:w-full'
+                }`}
+              >
+                {link.label}
+              </button>
+            );
+          })}
         </nav>
 
         {/* Zone 3: Primary Action & Utility Controls */}

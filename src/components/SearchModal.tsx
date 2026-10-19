@@ -13,10 +13,10 @@ export const SearchModal: React.FC<SearchModalProps> = ({
   onClose,
   onSelectAction,
 }) => {
-  const { newsArticles, events, projects, transparencyDocs } = useClubData();
+  const { newsArticles, events, projects, transparencyDocs, sponsors, siteSettings } = useClubData();
   const [query, setQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<
-    'all' | 'eventos' | 'projetos' | 'transparencia' | 'noticia' | 'documentos'
+    'all' | 'eventos' | 'projetos' | 'transparencia' | 'noticia' | 'patrocinadores' | 'documentos'
   >('all');
 
   const searchResults = useMemo(() => {
@@ -27,7 +27,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
       id: string;
       title: string;
       subtitle: string;
-      type: 'eventos' | 'projetos' | 'transparencia' | 'noticia' | 'documentos';
+      type: 'eventos' | 'projetos' | 'transparencia' | 'noticia' | 'patrocinadores' | 'documentos';
       actionType: string;
     }> = [];
 
@@ -54,7 +54,13 @@ export const SearchModal: React.FC<SearchModalProps> = ({
     // Search Vitalizar projects
     if (categoryFilter === 'all' || categoryFilter === 'projetos') {
       projects.forEach((p) => {
-        if (p.name.toLowerCase().includes(q) || p.description.toLowerCase().includes(q) || p.targetAudience.toLowerCase().includes(q)) {
+        const matchTag = p.tags?.some((t) => t.toLowerCase().includes(q));
+        if (
+          p.name.toLowerCase().includes(q) ||
+          p.description.toLowerCase().includes(q) ||
+          p.targetAudience.toLowerCase().includes(q) ||
+          matchTag
+        ) {
           items.push({
             id: p.id,
             title: p.name,
@@ -84,7 +90,13 @@ export const SearchModal: React.FC<SearchModalProps> = ({
     // Search News
     if (categoryFilter === 'all' || categoryFilter === 'noticia') {
       newsArticles.forEach((n) => {
-        if (n.title.toLowerCase().includes(q) || n.summary.toLowerCase().includes(q)) {
+        const matchTag = n.tags?.some((t) => t.toLowerCase().includes(q));
+        if (
+          n.title.toLowerCase().includes(q) ||
+          n.summary.toLowerCase().includes(q) ||
+          n.category.toLowerCase().includes(q) ||
+          matchTag
+        ) {
           items.push({
             id: n.id,
             title: n.title,
@@ -94,6 +106,30 @@ export const SearchModal: React.FC<SearchModalProps> = ({
           });
         }
       });
+    }
+
+    // Search Sponsors & Partners
+    if (categoryFilter === 'all' || categoryFilter === 'patrocinadores') {
+      sponsors
+        .filter((s) => s.active)
+        .forEach((s) => {
+          if (
+            s.name.toLowerCase().includes(q) ||
+            s.description.toLowerCase().includes(q) ||
+            s.category.toLowerCase().includes(q) ||
+            s.tierLabel.toLowerCase().includes(q) ||
+            q.includes('patrocin') ||
+            q.includes('parceir')
+          ) {
+            items.push({
+              id: s.id,
+              title: s.name,
+              subtitle: `${s.tierLabel} • ${s.category}`,
+              type: 'patrocinadores',
+              actionType: 'patrocinadores',
+            });
+          }
+        });
     }
 
     // Fixed institutional topics
@@ -120,9 +156,14 @@ export const SearchModal: React.FC<SearchModalProps> = ({
     }
 
     return items;
-  }, [query, categoryFilter]);
+  }, [query, categoryFilter, events, projects, transparencyDocs, newsArticles, sponsors]);
 
   if (!isOpen) return null;
+
+  const suggestions =
+    siteSettings.searchSuggestions && siteSettings.searchSuggestions.length > 0
+      ? siteSettings.searchSuggestions
+      : ['Clínica de Futsal', 'Primeiros Socorros', 'Assembleia Geral', 'Vida Ativa', 'Transparência', 'Cariacica'];
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center p-4 pt-16 sm:pt-24 bg-black/75 backdrop-blur-xs animate-in fade-in duration-150">
@@ -154,14 +195,14 @@ export const SearchModal: React.FC<SearchModalProps> = ({
           </button>
         </div>
 
-        {/* Filter Pills */}
+        {/* Filter Buttons */}
         <div className="px-5 py-2.5 bg-slate-100/70 border-b border-slate-200 flex items-center gap-2 overflow-x-auto text-xs">
           <span className="text-slate-500 font-bold uppercase text-[10px]">Filtrar:</span>
-          {(['all', 'eventos', 'projetos', 'transparencia', 'noticia', 'documentos'] as const).map((filter) => (
+          {(['all', 'eventos', 'projetos', 'transparencia', 'noticia', 'patrocinadores', 'documentos'] as const).map((filter) => (
             <button
               key={filter}
               onClick={() => setCategoryFilter(filter)}
-              className={`px-3 py-1 rounded-full font-bold uppercase text-[10px] tracking-wider transition-colors cursor-pointer ${
+              className={`px-3 py-1 rounded-lg font-bold uppercase text-[10px] tracking-wider transition-colors cursor-pointer shrink-0 ${
                 categoryFilter === filter
                   ? 'bg-[#0284c7] text-white shadow-sm'
                   : 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-200'
@@ -177,6 +218,8 @@ export const SearchModal: React.FC<SearchModalProps> = ({
                 ? 'Transparência'
                 : filter === 'noticia'
                 ? 'Notícias'
+                : filter === 'patrocinadores'
+                ? 'Parceiros'
                 : 'Documentos'}
             </button>
           ))}
@@ -185,14 +228,14 @@ export const SearchModal: React.FC<SearchModalProps> = ({
         {/* Results Area */}
         <div className="max-h-[380px] overflow-y-auto p-4 divide-y divide-slate-100">
           {query.trim() === '' ? (
-            <div className="py-8 text-center text-slate-500 space-y-2">
+            <div className="py-8 text-center text-slate-500 space-y-3">
               <Search className="w-8 h-8 mx-auto text-slate-300" />
               <p className="text-xs font-medium">
                 Digite um termo para pesquisar clínicas esportivas, oficinas, reuniões, modalidades e prestação de contas.
               </p>
-              <div className="pt-2 flex flex-wrap justify-center gap-1.5 text-[11px]">
+              <div className="pt-1 flex flex-wrap justify-center gap-1.5 text-[11px]">
                 <span className="text-slate-400">Sugestões:</span>
-                {['Clínica de Futsal', 'Primeiros Socorros', 'Assembleia Geral', 'Vida Ativa', 'Transparência', 'Cariacica'].map((sug) => (
+                {suggestions.map((sug) => (
                   <button
                     key={sug}
                     onClick={() => setQuery(sug)}
@@ -202,6 +245,20 @@ export const SearchModal: React.FC<SearchModalProps> = ({
                   </button>
                 ))}
               </div>
+              {siteSettings.siteTags && siteSettings.siteTags.length > 0 && (
+                <div className="pt-2 flex flex-wrap justify-center gap-1.5 text-[10px]">
+                  <span className="text-slate-400 font-semibold">Tags populares:</span>
+                  {siteSettings.siteTags.slice(0, 8).map((tag) => (
+                    <button
+                      key={tag}
+                      onClick={() => setQuery(tag)}
+                      className="px-2 py-0.5 bg-slate-100 hover:bg-sky-50 text-slate-600 hover:text-[#0284c7] rounded border border-slate-200 font-medium cursor-pointer transition-colors"
+                    >
+                      #{tag}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           ) : searchResults.length === 0 ? (
             <div className="py-8 text-center text-slate-500 space-y-2">
@@ -226,6 +283,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
                     {item.type === 'projetos' && <Trophy className="w-4 h-4" />}
                     {item.type === 'transparencia' && <FileText className="w-4 h-4" />}
                     {item.type === 'noticia' && <Calendar className="w-4 h-4" />}
+                    {item.type === 'patrocinadores' && <Trophy className="w-4 h-4" />}
                     {item.type === 'documentos' && <MapPin className="w-4 h-4" />}
                   </div>
 

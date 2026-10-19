@@ -1,23 +1,29 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
 import {
   CLUB_INFO,
   NEWS_ARTICLES,
   VITALIZAR_EVENTS,
   VITALIZAR_PROJECTS,
   TRANSPARENCY_DOCUMENTS,
+  DEFAULT_SITE_SETTINGS,
 } from '../data/clubeData.ts';
+import { INITIAL_SPONSORS } from '../data/sponsorsData.ts';
 import type {
   NewsArticle,
   VitalizarEvent,
   VitalizarProject,
   TransparencyDocument,
   PastEventPhoto,
+  Sponsor,
+  SiteSettings,
 } from '../types/index.ts';
 import {
   createAuditLogEntry,
   validateBackupSchema,
 } from '../utils/adminAuth.ts';
 import type { AuditLogEntry } from '../utils/adminAuth.ts';
+import { db } from '../firebase.ts';
+import { doc, getDoc, getDocs, collection, setDoc, deleteDoc } from 'firebase/firestore';
 
 export const INITIAL_GALLERY_ALBUMS: PastEventPhoto[] = [
   {
@@ -142,6 +148,8 @@ export interface ToastNotification {
 interface ClubDataContextType {
   clubInfo: typeof CLUB_INFO;
   setClubInfo: (info: typeof CLUB_INFO) => void;
+  siteSettings: SiteSettings;
+  setSiteSettings: (settings: SiteSettings) => void;
   newsArticles: NewsArticle[];
   addNewsArticle: (article: Omit<NewsArticle, 'id'>) => void;
   updateNewsArticle: (article: NewsArticle) => void;
@@ -165,6 +173,10 @@ interface ClubDataContextType {
   addTransparencyDoc: (doc: Omit<TransparencyDocument, 'id'>) => void;
   updateTransparencyDoc: (doc: TransparencyDocument) => void;
   deleteTransparencyDoc: (id: string) => void;
+  sponsors: Sponsor[];
+  addSponsor: (sponsor: Omit<Sponsor, 'id'>) => void;
+  updateSponsor: (sponsor: Sponsor) => void;
+  deleteSponsor: (id: string) => void;
   contactMessages: ContactMessageRecord[];
   addContactMessage: (msg: Omit<ContactMessageRecord, 'id' | 'date' | 'read'>) => void;
   markContactMessageRead: (id: string) => void;
@@ -177,7 +189,9 @@ interface ClubDataContextType {
   importDatabaseJson: (jsonString: string) => { success: boolean; message: string };
   saveAdminChanges: (payload: {
     clubInfo?: typeof CLUB_INFO;
+    siteSettings?: SiteSettings;
     newsArticles?: NewsArticle[];
+    sponsors?: Sponsor[];
     events?: VitalizarEvent[];
     projects?: VitalizarProject[];
     galleryAlbums?: PastEventPhoto[];
@@ -190,11 +204,14 @@ interface ClubDataContextType {
   toasts: ToastNotification[];
   showToast: (message: string, type?: 'success' | 'info' | 'error') => void;
   removeToast: (id: string) => void;
+  isFirebaseActive: boolean;
 }
 
 const STORAGE_KEYS = {
   CLUB_INFO: 'vitalizar_db_club_info',
+  SITE_SETTINGS: 'vitalizar_db_site_settings',
   NEWS: 'vitalizar_db_news',
+  SPONSORS: 'vitalizar_db_sponsors',
   EVENTS: 'vitalizar_db_events',
   PROJECTS: 'vitalizar_db_projects',
   GALLERY: 'vitalizar_db_gallery',
@@ -204,6 +221,46 @@ const STORAGE_KEYS = {
   LOGS: 'vitalizar_db_logs',
 };
 
+function normalizeSiteSettings(raw?: Partial<SiteSettings> | null): SiteSettings {
+  if (!raw || typeof raw !== 'object') {
+    return DEFAULT_SITE_SETTINGS;
+  }
+  return {
+    ...DEFAULT_SITE_SETTINGS,
+    ...raw,
+    newsCategories: Array.isArray(raw.newsCategories)
+      ? raw.newsCategories
+      : DEFAULT_SITE_SETTINGS.newsCategories,
+    eventCategories: Array.isArray(raw.eventCategories)
+      ? raw.eventCategories
+      : DEFAULT_SITE_SETTINGS.eventCategories,
+    projectCategories: Array.isArray(raw.projectCategories)
+      ? raw.projectCategories.map((item: any) =>
+          typeof item === 'string' ? item : item?.label || item?.id || ''
+        ).filter(Boolean)
+      : DEFAULT_SITE_SETTINGS.projectCategories,
+    galleryCategories: Array.isArray(raw.galleryCategories)
+      ? raw.galleryCategories
+      : DEFAULT_SITE_SETTINGS.galleryCategories,
+    sponsorCategories: Array.isArray(raw.sponsorCategories)
+      ? raw.sponsorCategories
+      : DEFAULT_SITE_SETTINGS.sponsorCategories,
+    contactSubjects: Array.isArray(raw.contactSubjects)
+      ? raw.contactSubjects
+      : DEFAULT_SITE_SETTINGS.contactSubjects,
+    siteTags: Array.isArray(raw.siteTags)
+      ? raw.siteTags
+      : DEFAULT_SITE_SETTINGS.siteTags,
+    searchSuggestions: Array.isArray(raw.searchSuggestions)
+      ? raw.searchSuggestions
+      : DEFAULT_SITE_SETTINGS.searchSuggestions,
+    announcementBanner: {
+      ...DEFAULT_SITE_SETTINGS.announcementBanner,
+      ...(raw.announcementBanner || {}),
+    },
+  };
+}
+
 const ClubDataContext = createContext<ClubDataContextType | null>(null);
 
 export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -211,9 +268,19 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [clubInfo, setClubInfoState] = useState<typeof CLUB_INFO>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.CLUB_INFO);
-      return saved ? JSON.parse(saved) : CLUB_INFO;
+      return saved ? { ...CLUB_INFO, ...JSON.parse(saved) } : CLUB_INFO;
     } catch {
       return CLUB_INFO;
+    }
+  });
+
+  // 1b. Site Settings
+  const [siteSettings, setSiteSettingsState] = useState<SiteSettings>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.SITE_SETTINGS);
+      return saved ? normalizeSiteSettings(JSON.parse(saved)) : DEFAULT_SITE_SETTINGS;
+    } catch {
+      return DEFAULT_SITE_SETTINGS;
     }
   });
 
@@ -264,6 +331,16 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       return saved ? JSON.parse(saved) : TRANSPARENCY_DOCUMENTS;
     } catch {
       return TRANSPARENCY_DOCUMENTS;
+    }
+  });
+
+  // 5b. Sponsors & Partners
+  const [sponsors, setSponsors] = useState<Sponsor[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.SPONSORS);
+      return saved ? JSON.parse(saved) : INITIAL_SPONSORS;
+    } catch {
+      return INITIAL_SPONSORS;
     }
   });
 
@@ -342,6 +419,91 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   });
 
+  const [isFirebaseActive, setIsFirebaseActive] = useState<boolean>(true);
+
+  // Sync initial data from Firestore if available
+  useEffect(() => {
+    let isMounted = true;
+    async function hydrateFromFirestore() {
+      try {
+        // 1. Club Info
+        const remoteClubInfo = await getDoc(doc(db, 'club_info', 'main'));
+        if (remoteClubInfo.exists() && isMounted) {
+          const remoteData = remoteClubInfo.data() as typeof CLUB_INFO;
+          setClubInfoState(remoteData);
+          localStorage.setItem(STORAGE_KEYS.CLUB_INFO, JSON.stringify(remoteData));
+        }
+
+        // 1b. Site Settings
+        const remoteSiteSettings = await getDoc(doc(db, 'site_settings', 'main'));
+        if (remoteSiteSettings.exists() && isMounted) {
+          const remoteSettings = normalizeSiteSettings(remoteSiteSettings.data() as Partial<SiteSettings>);
+          setSiteSettingsState(remoteSettings);
+          localStorage.setItem(STORAGE_KEYS.SITE_SETTINGS, JSON.stringify(remoteSettings));
+        }
+
+        // 2. News Articles
+        const newsSnap = await getDocs(collection(db, 'news_articles'));
+        if (!newsSnap.empty && isMounted) {
+          const remoteNews = newsSnap.docs.map((d) => d.data() as NewsArticle);
+          setNewsArticles(remoteNews);
+          localStorage.setItem(STORAGE_KEYS.NEWS, JSON.stringify(remoteNews));
+        }
+
+        // 3. Sponsors
+        const sponsorsSnap = await getDocs(collection(db, 'sponsors'));
+        if (!sponsorsSnap.empty && isMounted) {
+          const remoteSponsors = sponsorsSnap.docs.map((d) => d.data() as Sponsor);
+          remoteSponsors.sort((a, b) => (a.order || 0) - (b.order || 0));
+          setSponsors(remoteSponsors);
+          localStorage.setItem(STORAGE_KEYS.SPONSORS, JSON.stringify(remoteSponsors));
+        }
+
+        // 4. Events
+        const eventsSnap = await getDocs(collection(db, 'events'));
+        if (!eventsSnap.empty && isMounted) {
+          const remoteEvents = eventsSnap.docs.map((d) => d.data() as VitalizarEvent);
+          setEvents(remoteEvents);
+          localStorage.setItem(STORAGE_KEYS.EVENTS, JSON.stringify(remoteEvents));
+        }
+
+        // 5. Projects
+        const projectsSnap = await getDocs(collection(db, 'projects'));
+        if (!projectsSnap.empty && isMounted) {
+          const remoteProjects = projectsSnap.docs.map((d) => d.data() as VitalizarProject);
+          setProjects(remoteProjects);
+          localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(remoteProjects));
+        }
+
+        // 6. Gallery Albums
+        const gallerySnap = await getDocs(collection(db, 'gallery_albums'));
+        if (!gallerySnap.empty && isMounted) {
+          const remoteAlbums = gallerySnap.docs.map((d) => d.data() as PastEventPhoto);
+          setGalleryAlbums(remoteAlbums);
+          localStorage.setItem(STORAGE_KEYS.GALLERY, JSON.stringify(remoteAlbums));
+        }
+
+        // 7. Transparency Docs
+        const docsSnap = await getDocs(collection(db, 'transparency_docs'));
+        if (!docsSnap.empty && isMounted) {
+          const remoteDocs = docsSnap.docs.map((d) => d.data() as TransparencyDocument);
+          setTransparencyDocs(remoteDocs);
+          localStorage.setItem(STORAGE_KEYS.TRANSPARENCY, JSON.stringify(remoteDocs));
+        }
+
+        if (isMounted) {
+          setIsFirebaseActive(true);
+        }
+      } catch (err) {
+        console.info('Firestore offline ou em fallback local:', err);
+      }
+    }
+    hydrateFromFirestore();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   // 9. Toasts
   const [toasts, setToasts] = useState<ToastNotification[]>([]);
 
@@ -363,6 +525,18 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     localStorage.setItem(STORAGE_KEYS.CLUB_INFO, JSON.stringify(info));
     addAuditLog('DADOS_ENTIDADE_ALTERADOS', 'Informações institucionais da Vitalizar atualizadas.');
     showToast('Dados da entidade atualizados com sucesso!');
+  };
+
+  const setSiteSettings = (settings: SiteSettings) => {
+    setSiteSettingsState(settings);
+    localStorage.setItem(STORAGE_KEYS.SITE_SETTINGS, JSON.stringify(settings));
+    try {
+      setDoc(doc(db, 'site_settings', 'main'), settings).catch(console.warn);
+    } catch (err) {
+      console.warn('Erro ao salvar site_settings no Firestore:', err);
+    }
+    addAuditLog('CONFIGURACOES_ALTERADAS', 'Configurações de categorias, tags e parâmetros do portal atualizadas.');
+    showToast('Configurações do site atualizadas com sucesso!');
   };
 
   const addAuditLog = (action: string, details?: string, adminEmail: string = 'admin@vitalizar.org.br') => {
@@ -484,6 +658,16 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     });
 
     addAuditLog('RSVP_REGISTRADO', `Inscrição de ${rsvpData.name} no evento "${rsvpData.eventTitle}" (${rsvpData.spots} vaga(s)).`);
+    
+    // Asynchronous Firestore sync
+    try {
+      setDoc(doc(db, 'rsvps', newRsvp.id), newRsvp).catch((err) => {
+        console.warn('Aviso: sync Firestore para RSVP falhou:', err);
+      });
+    } catch (err) {
+      console.warn('Erro ao disparar setDoc para RSVP:', err);
+    }
+
     return confirmationCode;
   };
 
@@ -614,6 +798,48 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     showToast('Documento removido da transparência.');
   };
 
+  // Sponsors CRUD
+  const addSponsor = (sponData: Omit<Sponsor, 'id'>) => {
+    const newSponsor: Sponsor = {
+      ...sponData,
+      id: `patrocinador-${Date.now()}`,
+    };
+    setSponsors((prev) => {
+      const updated = [...prev, newSponsor];
+      updated.sort((a, b) => (a.order || 0) - (b.order || 0));
+      localStorage.setItem(STORAGE_KEYS.SPONSORS, JSON.stringify(updated));
+      return updated;
+    });
+    addAuditLog('PATROCINADOR_CRIADO', `Patrocinador "${newSponsor.name}" (${newSponsor.tierLabel}) adicionado.`);
+    showToast('Patrocinador adicionado com sucesso!');
+  };
+
+  const updateSponsor = (sponsor: Sponsor) => {
+    setSponsors((prev) => {
+      const updated = prev.map((s) => (s.id === sponsor.id ? sponsor : s));
+      updated.sort((a, b) => (a.order || 0) - (b.order || 0));
+      localStorage.setItem(STORAGE_KEYS.SPONSORS, JSON.stringify(updated));
+      return updated;
+    });
+    addAuditLog('PATROCINADOR_EDITADO', `Patrocinador "${sponsor.name}" atualizado.`);
+    showToast('Patrocinador atualizado com sucesso!');
+  };
+
+  const deleteSponsor = (id: string) => {
+    setSponsors((prev) => {
+      const spon = prev.find((s) => s.id === id);
+      const updated = prev.filter((s) => s.id !== id);
+      localStorage.setItem(STORAGE_KEYS.SPONSORS, JSON.stringify(updated));
+      if (spon) {
+        addAuditLog('PATROCINADOR_REMOVIDO', `Patrocinador "${spon.name}" removido.`);
+      }
+      return updated;
+    });
+    // Remove from Firestore if online
+    deleteDoc(doc(db, 'sponsors', id)).catch(console.warn);
+    showToast('Patrocinador removido.');
+  };
+
   // Contact Messages
   const addContactMessage = (msgData: Omit<ContactMessageRecord, 'id' | 'date' | 'read'>) => {
     const newMsg: ContactMessageRecord = {
@@ -628,6 +854,15 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       return updated;
     });
     addAuditLog('MENSAGEM_RECEBIDA', `Contato recebido de ${msgData.name} - Assunto: ${msgData.subject}`);
+
+    // Asynchronous Firestore sync
+    try {
+      setDoc(doc(db, 'contact_messages', newMsg.id), newMsg).catch((err) => {
+        console.warn('Aviso: sync Firestore para mensagem falhou:', err);
+      });
+    } catch (err) {
+      console.warn('Erro ao disparar setDoc para mensagem:', err);
+    }
   };
 
   const markContactMessageRead = (id: string) => {
@@ -650,7 +885,9 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   // Reset to Defaults
   const resetAllToDefaults = () => {
     localStorage.removeItem(STORAGE_KEYS.CLUB_INFO);
+    localStorage.removeItem(STORAGE_KEYS.SITE_SETTINGS);
     localStorage.removeItem(STORAGE_KEYS.NEWS);
+    localStorage.removeItem(STORAGE_KEYS.SPONSORS);
     localStorage.removeItem(STORAGE_KEYS.EVENTS);
     localStorage.removeItem(STORAGE_KEYS.PROJECTS);
     localStorage.removeItem(STORAGE_KEYS.GALLERY);
@@ -659,7 +896,9 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     localStorage.removeItem(STORAGE_KEYS.MESSAGES);
 
     setClubInfoState(CLUB_INFO);
+    setSiteSettingsState(DEFAULT_SITE_SETTINGS);
     setNewsArticles(NEWS_ARTICLES);
+    setSponsors(INITIAL_SPONSORS);
     setEvents(VITALIZAR_EVENTS);
     setProjects(VITALIZAR_PROJECTS);
     setGalleryAlbums(INITIAL_GALLERY_ALBUMS);
@@ -674,10 +913,12 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   // Export / Import
   const exportDatabaseJson = (): string => {
     const payload = {
-      version: '1.1',
+      version: '1.3',
       exportDate: new Date().toISOString(),
       clubInfo,
+      siteSettings,
       newsArticles,
+      sponsors,
       events,
       projects,
       galleryAlbums,
@@ -701,9 +942,18 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setClubInfoState(parsed.clubInfo);
         localStorage.setItem(STORAGE_KEYS.CLUB_INFO, JSON.stringify(parsed.clubInfo));
       }
+      if (parsed.siteSettings) {
+        const mergedSettings = { ...DEFAULT_SITE_SETTINGS, ...parsed.siteSettings };
+        setSiteSettingsState(mergedSettings);
+        localStorage.setItem(STORAGE_KEYS.SITE_SETTINGS, JSON.stringify(mergedSettings));
+      }
       if (Array.isArray(parsed.newsArticles)) {
         setNewsArticles(parsed.newsArticles);
         localStorage.setItem(STORAGE_KEYS.NEWS, JSON.stringify(parsed.newsArticles));
+      }
+      if (Array.isArray(parsed.sponsors)) {
+        setSponsors(parsed.sponsors);
+        localStorage.setItem(STORAGE_KEYS.SPONSORS, JSON.stringify(parsed.sponsors));
       }
       if (Array.isArray(parsed.events)) {
         setEvents(parsed.events);
@@ -757,7 +1007,9 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const saveAdminChanges = (payload: {
     clubInfo?: typeof CLUB_INFO;
+    siteSettings?: SiteSettings;
     newsArticles?: NewsArticle[];
+    sponsors?: Sponsor[];
     events?: VitalizarEvent[];
     projects?: VitalizarProject[];
     galleryAlbums?: PastEventPhoto[];
@@ -772,9 +1024,17 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         localStorage.setItem(STORAGE_KEYS.CLUB_INFO, JSON.stringify(payload.clubInfo));
         setClubInfoState(payload.clubInfo);
       }
+      if (payload.siteSettings !== undefined) {
+        localStorage.setItem(STORAGE_KEYS.SITE_SETTINGS, JSON.stringify(payload.siteSettings));
+        setSiteSettingsState(payload.siteSettings);
+      }
       if (payload.newsArticles !== undefined) {
         localStorage.setItem(STORAGE_KEYS.NEWS, JSON.stringify(payload.newsArticles));
         setNewsArticles(payload.newsArticles);
+      }
+      if (payload.sponsors !== undefined) {
+        localStorage.setItem(STORAGE_KEYS.SPONSORS, JSON.stringify(payload.sponsors));
+        setSponsors(payload.sponsors);
       }
       if (payload.events !== undefined) {
         localStorage.setItem(STORAGE_KEYS.EVENTS, JSON.stringify(payload.events));
@@ -801,11 +1061,53 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setContactMessages(payload.contactMessages);
       }
 
+      // Asynchronous batch-like sync to Firestore
+      try {
+        if (payload.clubInfo) {
+          setDoc(doc(db, 'club_info', 'main'), payload.clubInfo).catch(console.warn);
+        }
+        if (payload.siteSettings) {
+          setDoc(doc(db, 'site_settings', 'main'), payload.siteSettings).catch(console.warn);
+        }
+        if (payload.newsArticles) {
+          payload.newsArticles.forEach((art) => {
+            setDoc(doc(db, 'news_articles', art.id), art).catch(console.warn);
+          });
+        }
+        if (payload.sponsors) {
+          payload.sponsors.forEach((spon) => {
+            setDoc(doc(db, 'sponsors', spon.id), spon).catch(console.warn);
+          });
+        }
+        if (payload.events) {
+          payload.events.forEach((ev) => {
+            setDoc(doc(db, 'events', ev.id), ev).catch(console.warn);
+          });
+        }
+        if (payload.projects) {
+          payload.projects.forEach((proj) => {
+            setDoc(doc(db, 'projects', proj.id), proj).catch(console.warn);
+          });
+        }
+        if (payload.galleryAlbums) {
+          payload.galleryAlbums.forEach((alb) => {
+            setDoc(doc(db, 'gallery_albums', alb.id), alb).catch(console.warn);
+          });
+        }
+        if (payload.transparencyDocs) {
+          payload.transparencyDocs.forEach((d) => {
+            setDoc(doc(db, 'transparency_docs', d.id), d).catch(console.warn);
+          });
+        }
+      } catch (firestoreErr) {
+        console.warn('Aviso ao sincronizar com Firestore:', firestoreErr);
+      }
+
       addAuditLog(
         'ALTERACOES_SALVAS',
-        payload.logDetails || 'Alterações administrativas salvas e publicadas no site.'
+        payload.logDetails || 'Alterações administrativas salvas no banco de dados e publicadas no site.'
       );
-      showToast(payload.toastMessage || 'Alterações salvas com sucesso!');
+      showToast(payload.toastMessage || 'Alterações salvas no Firestore e publicadas!');
       return true;
     } catch {
       showToast(
@@ -821,10 +1123,16 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       value={{
         clubInfo,
         setClubInfo,
+        siteSettings,
+        setSiteSettings,
         newsArticles,
         addNewsArticle,
         updateNewsArticle,
         deleteNewsArticle,
+        sponsors,
+        addSponsor,
+        updateSponsor,
+        deleteSponsor,
         events,
         addEvent,
         updateEvent,
@@ -858,6 +1166,7 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         toasts,
         showToast,
         removeToast,
+        isFirebaseActive,
       }}
     >
       {children}

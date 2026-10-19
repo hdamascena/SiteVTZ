@@ -8,6 +8,7 @@ import {
   FacilityPolo,
   TransparencyDocument,
   VitalizarEvent,
+  SiteSettings,
 } from '../types/index.ts';
 
 export const CLUB_INFO = {
@@ -886,3 +887,85 @@ export const VITALIZAR_EVENTS: VitalizarEvent[] = [
     status: 'confirmado',
   },
 ];
+
+export const DEFAULT_SITE_SETTINGS: SiteSettings = {
+  newsCategories: [
+    'Institucional',
+    'Esporte Educacional',
+    'Saúde & Qualidade de Vida',
+    'Voluntariado',
+    'Transparência',
+    'Festivais & Comunidade',
+  ],
+  eventCategories: [
+    'Clínica Esportiva',
+    'Oficina Comunitária',
+    'Reunião da Associação',
+  ],
+  projectCategories: [
+    'esporte_educacional',
+    'saude_qualidade_vida',
+    'cultura_cidadania',
+    'inclusao_pcd',
+    'terceira_idade',
+  ],
+  galleryCategories: [
+    'Festivais Esportivos',
+    'Categorias de Base',
+    'Saúde & Vida Ativa',
+    'Inclusão & Comunidade',
+  ],
+  sponsorCategories: [
+    'Poder Público',
+    'Fomento Esportivo',
+    'Saúde & Bem-Estar',
+    'Comércio & Serviços',
+    'Educação & Formação',
+    'Governança Social',
+  ],
+  contactSubjects: [
+    'Dúvidas Gerais',
+    'Inscrição em Projetos',
+    'Voluntariado',
+    'Parcerias',
+    'Ouvidoria',
+  ],
+  siteTags: [
+    'Futsal',
+    'Voleibol',
+    'Iniciação Esportiva',
+    'Terceira Idade',
+    'Esporte Adaptado',
+    'Rio Marinho',
+    'Cariacica/ES',
+    'Gratuito',
+    'MROSC',
+    'Saúde Preventiva',
+  ],
+  searchSuggestions: [
+    'Clínica de Futsal',
+    'Primeiros Socorros',
+    'Assembleia Geral',
+    'Vida Ativa',
+    'Transparência',
+    'Cariacica',
+    'Patrocinadores',
+  ],
+  announcementBanner: {
+    enabled: true,
+    text: 'Inscrições gratuitas abertas para as escolinhas de Futsal, Vôlei e Projeto Vida Ativa no Polo Rio Marinho!',
+    linkLabel: 'Garantir Vaga',
+    linkTarget: 'inscricoes',
+  },
+  seoTitle: 'Associação Esportiva Vitalizar • Esporte, Saúde e Inclusão em Cariacica/ES',
+  seoDescription:
+    'Portal oficial da Associação Esportiva Vitalizar (Cariacica/ES). Projetos socioesportivos gratuitos, clínicas, oficinas comunitárias e transparência ativa.',
+  whatsappNumber: '552797740773',
+  enableRegistrations: true,
+  enableSponsorsSection: true,
+  enableFloatingWhatsapp: true,
+  enableSearch: true,
+  enableRsvpModal: true,
+};
+
+
