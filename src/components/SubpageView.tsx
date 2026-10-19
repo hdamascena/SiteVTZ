@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ArrowLeft,
   Calendar,
@@ -24,6 +24,7 @@ import {
 import { FACILITY_POLOS } from '../data/clubeData.ts';
 import { useClubData } from '../context/ClubDataContext.tsx';
 import { NewsArticle } from '../types/index.ts';
+import { sortNewsByDate } from '../utils/newsSort.ts';
 import { EventsCalendar } from './EventsCalendar.tsx';
 
 interface SubpageViewProps {
@@ -67,7 +68,26 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
     });
     showToast('Mensagem enviada com sucesso!');
     setContactSent(true);
+    // Limpa o formulário para evitar reenvio duplicado ao clicar em "Enviar Nova Mensagem"
+    setName('');
+    setPhone('');
+    setMessage('');
   };
+
+  // Abre a notícia indicada (ex: resultado de busca) e rola até o item indicado (projeto/documento)
+  useEffect(() => {
+    if (!subId) return;
+    if (pageId === 'noticias') {
+      const article = newsArticles.find((a) => a.id === subId);
+      if (article) setSelectedNewsArticle(article);
+      return;
+    }
+    const timer = setTimeout(() => {
+      document.getElementById(subId)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 150);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageId, subId]);
 
   const renderVitalizarInstitucional = () => (
     <div className="space-y-8">
@@ -266,6 +286,7 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
         {projects.map((proj) => (
           <div
             key={proj.id}
+            id={proj.id}
             className="bg-white rounded-xl border border-slate-200/90 overflow-hidden flex flex-col justify-between"
           >
             <div className="relative aspect-16/10 bg-slate-100">
@@ -293,6 +314,12 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
                   <Clock className="w-3.5 h-3.5 text-[#0284c7]" />
                   <span>{proj.schedule}</span>
                 </div>
+                {(proj.coordinator || proj.fundingSource) && (
+                  <div className="text-[11px] text-slate-500 space-y-0.5">
+                    {proj.coordinator && <p>Coordenação: {proj.coordinator}</p>}
+                    {proj.fundingSource && <p>Fomento: {proj.fundingSource}</p>}
+                  </div>
+                )}
 
                 {proj.attachments && proj.attachments.length > 0 && (
                   <div className="space-y-1.5 pt-1">
@@ -354,7 +381,7 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
             {transparencyDocs.map((doc) => {
               const fileHref = doc.fileDataUrl || doc.downloadUrl;
               return (
-                <div key={doc.id} className="py-3.5 first:pt-0 last:pb-0 space-y-1.5">
+                <div key={doc.id} id={doc.id} className="py-3.5 first:pt-0 last:pb-0 space-y-1.5">
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-bold text-xs text-slate-900">{doc.title}</span>
                     <span className="text-xs text-[#0284c7] font-semibold shrink-0">
@@ -557,13 +584,12 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
       { id: 'Institucional', label: 'Institucional' },
       { id: 'Esporte Educacional', label: 'Esporte Educacional' },
       { id: 'Saúde & Qualidade de Vida', label: 'Saúde' },
+      { id: 'Voluntariado', label: 'Voluntariado' },
       { id: 'Transparência', label: 'Transparência' },
     ];
 
-    const filteredArticles = newsArticles.filter((art) => {
-      const matchCat =
-        newsFilterCategory === 'all' ||
-        art.category.toLowerCase().includes(newsFilterCategory.toLowerCase());
+    const filteredArticles = sortNewsByDate(newsArticles).filter((art) => {
+      const matchCat = newsFilterCategory === 'all' || art.category === newsFilterCategory;
       const matchSearch =
         !newsSearch.trim() ||
         art.title.toLowerCase().includes(newsSearch.toLowerCase()) ||
@@ -724,6 +750,10 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
                 <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 leading-tight">
                   {selectedNewsArticle.title}
                 </h1>
+
+                {selectedNewsArticle.author && (
+                  <p className="text-xs text-slate-500">Por {selectedNewsArticle.author}</p>
+                )}
 
                 <p className="text-sm font-medium text-slate-600 pb-4 border-b border-slate-200">
                   {selectedNewsArticle.summary}

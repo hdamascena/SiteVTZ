@@ -10,16 +10,12 @@ import {
   HeartPulse,
 } from 'lucide-react';
 import { FACILITY_POLOS } from '../data/clubeData.ts';
-import { validateActivityEnrollment, MODALITY_LIMITS } from '../utils/feeCalculator.ts';
+import {
+  validateActivityEnrollment,
+  MODALITY_LIMITS,
+  MODALITY_NAMES,
+} from '../utils/feeCalculator.ts';
 import { useClubData } from '../context/ClubDataContext.tsx';
-
-const MODALITY_NAMES: Record<string, string> = {
-  iniciacao_esportiva: 'Iniciação Esportiva (Futsal, Vôlei)',
-  condicionamento_fisico: 'Condicionamento Físico & Saúde',
-  danca_cultura: 'Oficinas Culturais e Dança',
-  esporte_adaptado: 'Inclusão & Esporte Adaptado (PcD)',
-  vida_ativa_idosos: 'Projeto Vida Ativa (Pessoas Idosas)',
-};
 
 interface ReservationSimulatorModalProps {
   isOpen: boolean;
@@ -39,6 +35,19 @@ export const ReservationSimulatorModal: React.FC<ReservationSimulatorModalProps>
   const [phone, setPhone] = useState<string>('');
   const [turn, setTurn] = useState<string>('matutino');
   const [isConfirmed, setIsConfirmed] = useState<boolean>(false);
+  const [confirmationCode, setConfirmationCode] = useState<string>('');
+
+  const turnLabel = turn === 'matutino' ? 'Manhã' : turn === 'vespertino' ? 'Tarde' : 'Noite';
+
+  // O modal permanece montado: limpa o formulário ao fechar para não reabrir com dados antigos
+  const handleClose = () => {
+    setIsConfirmed(false);
+    setConfirmationCode('');
+    setParticipantName('');
+    setResponsibleName('');
+    setPhone('');
+    onClose();
+  };
 
   const selectedPolo = FACILITY_POLOS.find((p) => p.id === selectedPoloId) || FACILITY_POLOS[0];
   const validation = validateActivityEnrollment(modalityKey, participantAge, 18);
@@ -46,17 +55,17 @@ export const ReservationSimulatorModal: React.FC<ReservationSimulatorModalProps>
   const handleConfirmEnrollment = (e: React.FormEvent) => {
     e.preventDefault();
     if (!validation.valid) return;
-    const turnLabel = turn === 'matutino' ? 'Manhã' : turn === 'vespertino' ? 'Tarde' : 'Noite';
     const fullNameInfo = responsibleName.trim()
       ? `${participantName.trim()} (${participantAge} anos · Resp: ${responsibleName.trim()})`
       : `${participantName.trim()} (${participantAge} anos)`;
-    addRsvp({
+    const code = addRsvp({
       eventId: `modalidade-${modalityKey}`,
       eventTitle: `${MODALITY_NAMES[modalityKey] || modalityKey} — ${selectedPolo.name} (${turnLabel})`,
       name: fullNameInfo,
       phone: phone.trim(),
       spots: 1,
     });
+    setConfirmationCode(code);
     setIsConfirmed(true);
   };
 
@@ -81,7 +90,7 @@ export const ReservationSimulatorModal: React.FC<ReservationSimulatorModalProps>
             </div>
           </div>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="p-1.5 text-sky-200 hover:text-white rounded-lg hover:bg-white/10 transition-colors cursor-pointer"
             aria-label="Fechar"
           >
@@ -104,16 +113,16 @@ export const ReservationSimulatorModal: React.FC<ReservationSimulatorModalProps>
             <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl max-w-md mx-auto text-left text-xs space-y-1">
               <p>• <strong>Polo:</strong> {selectedPolo.name}</p>
               <p>• <strong>Endereço:</strong> {selectedPolo.address}</p>
-              <p>• <strong>Turno:</strong> {turn === 'matutino' ? 'Manhã (08h às 10h)' : 'Tarde (14h às 16h)'}</p>
+              <p>• <strong>Turno:</strong> {turnLabel}</p>
               <p>• <strong>Contato:</strong> {phone}</p>
+              {confirmationCode && (
+                <p>• <strong>Protocolo:</strong> <span className="font-mono">{confirmationCode}</span></p>
+              )}
             </div>
 
             <div className="pt-4 flex justify-center gap-3">
               <button
-                onClick={() => {
-                  setIsConfirmed(false);
-                  onClose();
-                }}
+                onClick={handleClose}
                 className="px-6 py-2.5 bg-[#0a1e36] text-white text-xs font-bold uppercase tracking-wider rounded-xl hover:bg-[#061424] transition-colors cursor-pointer"
               >
                 Concluir
@@ -303,7 +312,7 @@ export const ReservationSimulatorModal: React.FC<ReservationSimulatorModalProps>
             <div className="flex items-center justify-between pt-4 border-t border-slate-200">
               <button
                 type="button"
-                onClick={onClose}
+                onClick={handleClose}
                 className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-900 cursor-pointer"
               >
                 Cancelar

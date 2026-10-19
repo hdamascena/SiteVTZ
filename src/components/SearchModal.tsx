@@ -13,7 +13,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
   onClose,
   onSelectAction,
 }) => {
-  const { newsArticles, events, projects, transparencyDocs } = useClubData();
+  const { newsArticles, events, projects, transparencyDocs, clubInfo } = useClubData();
   const [query, setQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<
     'all' | 'eventos' | 'projetos' | 'transparencia' | 'noticia' | 'documentos'
@@ -99,11 +99,11 @@ export const SearchModal: React.FC<SearchModalProps> = ({
     // Fixed institutional topics
     if (categoryFilter === 'all' || categoryFilter === 'documentos') {
       const docs = [
-        { id: 'estatuto-social', title: 'Estatuto Social 2026 (Consolidado)', sub: 'Associação Esportiva Vitalizar • Cariacica' },
-        { id: 'diretoria-conselhos', title: 'Composição da Diretoria Executiva e Conselhos', sub: 'Presidente Gabriel Guedes Venâncio' },
-        { id: 'sede-polos', title: 'Sede Rio Marinho e Polos de Treinamento', sub: 'Rua Quatro, 173, Rio Marinho, Cariacica/ES' },
-        { id: 'prestacao-contas', title: 'Prestação de Contas (Art. 30)', sub: 'Demonstrativos e relatórios anuais de atividades' },
-        { id: 'voluntariado', title: 'Programa de Voluntários e Apoio Comunitário', sub: 'Art. 6º, III do Estatuto Social' },
+        { id: 'estatuto-social', title: 'Estatuto Social 2026 (Consolidado)', sub: `${clubInfo.fullName} • Cariacica`, action: 'a-vitalizar' },
+        { id: 'diretoria-conselhos', title: 'Composição da Diretoria Executiva e Conselhos', sub: `Presidente ${clubInfo.president}`, action: 'a-vitalizar' },
+        { id: 'sede-polos', title: 'Sede Rio Marinho e Polos de Treinamento', sub: clubInfo.address, action: 'a-vitalizar' },
+        { id: 'prestacao-contas', title: 'Prestação de Contas (Art. 30)', sub: 'Demonstrativos e relatórios anuais de atividades', action: 'transparencia' },
+        { id: 'voluntariado', title: 'Programa de Voluntários e Apoio Comunitário', sub: 'Art. 6º, III do Estatuto Social', action: 'contato' },
       ];
 
       docs.forEach((d) => {
@@ -113,14 +113,14 @@ export const SearchModal: React.FC<SearchModalProps> = ({
             title: d.title,
             subtitle: d.sub,
             type: 'documentos',
-            actionType: 'a-vitalizar',
+            actionType: d.action,
           });
         }
       });
     }
 
     return items;
-  }, [query, categoryFilter]);
+  }, [query, categoryFilter, newsArticles, events, projects, transparencyDocs, clubInfo]);
 
   if (!isOpen) return null;
 

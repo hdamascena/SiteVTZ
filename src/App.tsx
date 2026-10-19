@@ -99,7 +99,7 @@ function VitalizarMainApp() {
     } else if (actionType === 'transparencia') {
       handleOpenSubpage('transparencia', id);
     } else if (actionType === 'noticia') {
-      handleOpenSubpage('noticias');
+      handleOpenSubpage('noticias', id);
     } else if (actionType === 'a-vitalizar') {
       handleOpenSubpage('a-vitalizar', id);
     } else {
@@ -121,6 +121,7 @@ function VitalizarMainApp() {
       <main className="flex-1">
         {activeSubpage ? (
           <SubpageView
+            key={`${activeSubpage}-${activeSubTab ?? ''}`}
             pageId={activeSubpage}
             subId={activeSubTab}
             onBack={() => setActiveSubpage(null)}

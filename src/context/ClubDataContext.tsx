@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState } from 'react';
 import {
   CLUB_INFO,
   NEWS_ARTICLES,
@@ -18,6 +18,28 @@ import {
   validateBackupSchema,
 } from '../utils/adminAuth.ts';
 import type { AuditLogEntry } from '../utils/adminAuth.ts';
+import { withSpotsStatus } from '../utils/eventFilter.ts';
+
+/** Completa dados da entidade salvos/importados sem algum campo (evita quebrar rodapé e cabeçalho). */
+const normalizeClubInfo = (info: any): typeof CLUB_INFO => ({
+  ...CLUB_INFO,
+  ...(info && typeof info === 'object' ? info : {}),
+  phones: Array.isArray(info?.phones) ? info.phones : CLUB_INFO.phones,
+  hours: { ...CLUB_INFO.hours, ...(info?.hours || {}) },
+  socials: { ...CLUB_INFO.socials, ...(info?.socials || {}) },
+});
+
+/** Garante que o conteúdo da notícia seja sempre uma lista de parágrafos. */
+const normalizeNews = (articles: any[]): NewsArticle[] =>
+  articles.map((a) => ({
+    ...a,
+    content: Array.isArray(a?.content)
+      ? a.content
+      : String(a?.content ?? '')
+          .split(/\n\s*\n/)
+          .map((p: string) => p.trim())
+          .filter(Boolean),
+  }));
 
 export const INITIAL_GALLERY_ALBUMS: PastEventPhoto[] = [
   {
@@ -174,6 +196,7 @@ interface ClubDataContextType {
   clearAuditLogs: () => void;
   resetAllToDefaults: () => void;
   exportDatabaseJson: () => string;
+  buildBackupJson: () => string;
   importDatabaseJson: (jsonString: string) => { success: boolean; message: string };
   saveAdminChanges: (payload: {
     clubInfo?: typeof CLUB_INFO;
@@ -211,7 +234,7 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [clubInfo, setClubInfoState] = useState<typeof CLUB_INFO>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.CLUB_INFO);
-      return saved ? JSON.parse(saved) : CLUB_INFO;
+      return saved ? normalizeClubInfo(JSON.parse(saved)) : CLUB_INFO;
     } catch {
       return CLUB_INFO;
     }
@@ -221,7 +244,7 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [newsArticles, setNewsArticles] = useState<NewsArticle[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.NEWS);
-      return saved ? JSON.parse(saved) : NEWS_ARTICLES;
+      return saved ? normalizeNews(JSON.parse(saved)) : NEWS_ARTICLES;
     } catch {
       return NEWS_ARTICLES;
     }
@@ -344,6 +367,49 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   // 9. Toasts
   const [toasts, setToasts] = useState<ToastNotification[]>([]);
+
+  // Sincroniza alterações feitas em outra aba (ex: painel aberto em uma aba e site em outra)
+  useEffect(() => {
+    const handleStorage = (e: StorageEvent) => {
+      if (!e.key || e.newValue === null) return;
+      try {
+        const value = JSON.parse(e.newValue);
+        switch (e.key) {
+          case STORAGE_KEYS.CLUB_INFO:
+            setClubInfoState(normalizeClubInfo(value));
+            break;
+          case STORAGE_KEYS.NEWS:
+            setNewsArticles(normalizeNews(value));
+            break;
+          case STORAGE_KEYS.EVENTS:
+            setEvents(value);
+            break;
+          case STORAGE_KEYS.PROJECTS:
+            setProjects(value);
+            break;
+          case STORAGE_KEYS.GALLERY:
+            setGalleryAlbums(value);
+            break;
+          case STORAGE_KEYS.TRANSPARENCY:
+            setTransparencyDocs(value);
+            break;
+          case STORAGE_KEYS.RSVPS:
+            setRsvps(value);
+            break;
+          case STORAGE_KEYS.MESSAGES:
+            setContactMessages(value);
+            break;
+          case STORAGE_KEYS.LOGS:
+            setAuditLogs(value);
+            break;
+        }
+      } catch {
+        // ignora valores corrompidos
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
 
   const showToast = (message: string, type: 'success' | 'info' | 'error' = 'success') => {
     const id = `toast-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
@@ -470,12 +536,10 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setEvents((prev) => {
       const updated = prev.map((ev) => {
         if (ev.id === rsvpData.eventId) {
-          const newSpots = Math.max(0, ev.availableSpots - rsvpData.spots);
-          return {
-            ...ev,
-            availableSpots: newSpots,
-            status: newSpots === 0 ? 'em_breve' : newSpots <= 5 ? 'vagas_limitadas' : ev.status,
-          };
+          return withSpotsStatus(
+            { ...ev, availableSpots: Math.max(0, ev.availableSpots - rsvpData.spots) },
+            ev.availableSpots
+          );
         }
         return ev;
       });
@@ -655,8 +719,9 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     localStorage.removeItem(STORAGE_KEYS.PROJECTS);
     localStorage.removeItem(STORAGE_KEYS.GALLERY);
     localStorage.removeItem(STORAGE_KEYS.TRANSPARENCY);
-    localStorage.removeItem(STORAGE_KEYS.RSVPS);
-    localStorage.removeItem(STORAGE_KEYS.MESSAGES);
+    // Grava listas vazias (remover a chave faria as inscrições/mensagens de exemplo voltarem ao recarregar)
+    localStorage.setItem(STORAGE_KEYS.RSVPS, '[]');
+    localStorage.setItem(STORAGE_KEYS.MESSAGES, '[]');
 
     setClubInfoState(CLUB_INFO);
     setNewsArticles(NEWS_ARTICLES);
@@ -672,7 +737,8 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   // Export / Import
-  const exportDatabaseJson = (): string => {
+  /** Monta o JSON de backup sem registrar auditoria (usado também para medir o tamanho). */
+  const buildBackupJson = (): string => {
     const payload = {
       version: '1.1',
       exportDate: new Date().toISOString(),
@@ -685,8 +751,12 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       rsvps,
       contactMessages,
     };
-    addAuditLog('BACKUP_EXPORTADO', 'Backup completo do site Vitalizar foi exportado.');
     return JSON.stringify(payload, null, 2);
+  };
+
+  const exportDatabaseJson = (): string => {
+    addAuditLog('BACKUP_EXPORTADO', 'Backup completo do site Vitalizar foi exportado.');
+    return buildBackupJson();
   };
 
   const importDatabaseJson = (jsonString: string): { success: boolean; message: string } => {
@@ -698,12 +768,14 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
 
       if (parsed.clubInfo) {
-        setClubInfoState(parsed.clubInfo);
-        localStorage.setItem(STORAGE_KEYS.CLUB_INFO, JSON.stringify(parsed.clubInfo));
+        const info = normalizeClubInfo(parsed.clubInfo);
+        setClubInfoState(info);
+        localStorage.setItem(STORAGE_KEYS.CLUB_INFO, JSON.stringify(info));
       }
       if (Array.isArray(parsed.newsArticles)) {
-        setNewsArticles(parsed.newsArticles);
-        localStorage.setItem(STORAGE_KEYS.NEWS, JSON.stringify(parsed.newsArticles));
+        const news = normalizeNews(parsed.newsArticles);
+        setNewsArticles(news);
+        localStorage.setItem(STORAGE_KEYS.NEWS, JSON.stringify(news));
       }
       if (Array.isArray(parsed.events)) {
         setEvents(parsed.events);
@@ -853,6 +925,7 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         clearAuditLogs,
         resetAllToDefaults,
         exportDatabaseJson,
+        buildBackupJson,
         importDatabaseJson,
         saveAdminChanges,
         toasts,

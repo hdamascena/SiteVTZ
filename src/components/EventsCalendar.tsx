@@ -26,6 +26,8 @@ import {
   sortEventsByDate,
   validateEventRSVP,
   generateGoogleCalendarUrl,
+  isEventClosed,
+  isEventPast,
 } from '../utils/eventFilter.ts';
 
 interface EventsCalendarProps {
@@ -45,7 +47,11 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<EventCategory | 'all'>(initialCategory);
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'agenda'>('grid');
-  const [selectedEvent, setSelectedEvent] = useState<VitalizarEvent | null>(null);
+  const [selectedEventSnapshot, setSelectedEvent] = useState<VitalizarEvent | null>(null);
+  // Sempre lê a versão atual do evento (vagas/status mudam após inscrições ou edições no painel)
+  const selectedEvent = selectedEventSnapshot
+    ? events.find((ev) => ev.id === selectedEventSnapshot.id) ?? selectedEventSnapshot
+    : null;
 
   useEffect(() => {
     if (initialCategory) {
@@ -110,6 +116,12 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
     );
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2500);
+  };
+
+  const getClosedLabel = (event: VitalizarEvent) => {
+    if (isEventPast(event)) return 'Encerrado';
+    if (event.availableSpots <= 0) return 'Lotado';
+    return 'Em breve';
   };
 
   const getCategoryText = (category: EventCategory) => {
@@ -278,11 +290,14 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
         ) : viewMode === 'grid' ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredEvents.map((event, idx) => {
-              const isFull = event.availableSpots === 0;
+              const isFull = isEventClosed(event);
               const isFeatured = idx === 0;
-              const occupancyPercent = Math.min(
-                100,
-                Math.round(((event.capacity - event.availableSpots) / event.capacity) * 100)
+              const occupancyPercent = Math.max(
+                0,
+                Math.min(
+                  100,
+                  Math.round(((event.capacity - event.availableSpots) / (event.capacity || 1)) * 100)
+                )
               );
 
               return (
@@ -418,7 +433,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                             isFeatured ? 'text-white' : 'text-slate-800'
                           }`}
                         >
-                          {isFull ? 'Lotado' : `${event.availableSpots} de ${event.capacity}`}
+                          {isFull ? getClosedLabel(event) : `${event.availableSpots} de ${event.capacity}`}
                         </span>
                       </div>
                       <div
@@ -456,7 +471,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
             className="bg-white/75 backdrop-blur-xl border border-white/90 rounded-2xl divide-y divide-slate-200/60 overflow-hidden shadow-[0_8px_30px_rgb(15,23,42,0.05)]"
           >
             {filteredEvents.map((event) => {
-              const isFull = event.availableSpots === 0;
+              const isFull = isEventClosed(event);
               return (
                 <button
                   key={event.id}
@@ -492,7 +507,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
 
                   <div className="flex items-center justify-between md:justify-end gap-6 pt-2 md:pt-0 border-t md:border-t-0 border-slate-100">
                     <span className="text-xs font-semibold text-slate-700 tabular-nums">
-                      {isFull ? 'Lotado' : `${event.availableSpots} vagas`}
+                      {isFull ? getClosedLabel(event) : `${event.availableSpots} vagas`}
                     </span>
                     <span className="px-4 py-2 bg-sky-50/90 group-hover:bg-[#0284c7] text-[#0284c7] group-hover:text-white text-xs font-semibold rounded-xl transition-colors inline-flex items-center gap-1">
                       <span>Participar</span>
@@ -713,9 +728,9 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                     </p>
                   </div>
                   <span className="text-xs font-semibold text-[#0284c7] tabular-nums">
-                    {selectedEvent.availableSpots > 0
+                    {!isEventClosed(selectedEvent)
                       ? `${selectedEvent.availableSpots} vagas restantes`
-                      : 'Lotado'}
+                      : getClosedLabel(selectedEvent)}
                   </span>
                 </div>
 
@@ -733,11 +748,15 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                       Protocolo: {confirmationCode}
                     </p>
                   </div>
-                ) : selectedEvent.availableSpots === 0 ? (
+                ) : isEventClosed(selectedEvent) ? (
                   <div className="p-4 bg-white rounded-lg text-center text-xs text-slate-600 space-y-1 border border-slate-200">
                     <AlertCircle className="w-5 h-5 text-slate-400 mx-auto" />
                     <p className="font-semibold text-slate-800">
-                      Vagas preenchidas para esta atividade.
+                      {isEventPast(selectedEvent)
+                        ? 'Esta atividade já foi realizada.'
+                        : selectedEvent.availableSpots <= 0
+                        ? 'Vagas preenchidas para esta atividade.'
+                        : 'Inscrições ainda não abertas para esta atividade.'}
                     </p>
                   </div>
                 ) : (

@@ -33,7 +33,10 @@ export const PhotoGallerySection: React.FC = () => {
     'Inclusão & Comunidade',
   ];
 
-  const albumsSource = galleryAlbums && galleryAlbums.length > 0 ? galleryAlbums : INITIAL_GALLERY_ALBUMS;
+  // Exibe exatamente o que está publicado no painel (sem voltar aos álbuns de exemplo quando a lista fica vazia)
+  const albumsSource = (galleryAlbums || []).filter(
+    (album) => Array.isArray(album.albumPhotos) && album.albumPhotos.length > 0
+  );
 
   const filteredAlbums =
     selectedCategory === 'Todos'
@@ -134,6 +137,11 @@ export const PhotoGallerySection: React.FC = () => {
         </motion.div>
 
         {/* Rich 4-Column Photo Album Grid with Staggered Scroll Reveal */}
+        {filteredAlbums.length === 0 && (
+          <p className="text-sm text-slate-500 text-center py-10">
+            Nenhum álbum publicado nesta categoria.
+          </p>
+        )}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
           {filteredAlbums.map((album, idx) => (
             <motion.div
