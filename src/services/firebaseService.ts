@@ -371,7 +371,7 @@ export async function verifyFirebaseAdminAccess(
   }
 
   // 2. Configured institutional admin email check
-  if (emailLower === configuredLower || emailLower === 'admin@vitalizar.org.br') {
+  if (user.emailVerified && (emailLower === configuredLower || emailLower === 'admin@vitalizar.org.br')) {
     return { authorized: true, role: 'admin' };
   }
 

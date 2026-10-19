@@ -49,10 +49,8 @@ import {
 } from 'lucide-react';
 import { useClubData } from '../context/ClubDataContext.tsx';
 import {
-  validateAdminCredentials,
   isSessionValid,
   validateSecurityPin,
-  validatePasswordStrength,
   AdminCredentials,
   RateLimitState,
   AdminSession,
@@ -117,9 +115,19 @@ function changedOrUndefined<T>(next: T, published: T): T | undefined {
   return JSON.stringify(next) !== JSON.stringify(published) ? next : undefined;
 }
 
+/** Troca dois patrocinadores de posição (por id, funciona com filtro ativo) e renumera a ordem. */
+function swapSponsors(list: Sponsor[], idA: string, idB: string): Sponsor[] {
+  const a = list.find((s) => s.id === idA);
+  const b = list.find((s) => s.id === idB);
+  if (!a || !b) return list;
+  return list
+    .map((s) => (s.id === idA ? b : s.id === idB ? a : s))
+    .map((s, i) => ({ ...s, order: i + 1 }));
+}
+
 const DEFAULT_ADMIN_CREDS: AdminCredentials = {
   email: 'admin@vitalizar.org.br',
-  passwordHashOrPlain: 'vitalizar2026!',
+  passwordHashOrPlain: '',
   securityPin: '140926',
 };
 
@@ -507,7 +515,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
   const [creds, setCreds] = useState<AdminCredentials>(() => {
     try {
       const saved = localStorage.getItem('vitalizar_admin_credentials');
-      return saved ? JSON.parse(saved) : DEFAULT_ADMIN_CREDS;
+      // A senha não é mais guardada no navegador: o acesso é feito pela conta Firebase.
+      return saved ? { ...JSON.parse(saved), passwordHashOrPlain: '' } : DEFAULT_ADMIN_CREDS;
     } catch {
       return DEFAULT_ADMIN_CREDS;
     }
@@ -529,37 +538,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
   const [firebaseUser, setFirebaseUser] = useState(auth.currentUser);
   const [isAuthenticatingFirebase, setIsAuthenticatingFirebase] = useState(false);
 
-  // Sync draft states when context data changes externally (e.g. after save, reset, or import)
-  useEffect(() => {
-    setDraftClubInfo(clubInfo);
-  }, [clubInfo]);
-  useEffect(() => {
-    setDraftSiteSettings(siteSettings);
-  }, [siteSettings]);
-  useEffect(() => {
-    setDraftNews(newsArticles);
-  }, [newsArticles]);
-  useEffect(() => {
-    setDraftSponsors(sponsors);
-  }, [sponsors]);
-  useEffect(() => {
-    setDraftEvents(events);
-  }, [events]);
-  useEffect(() => {
-    setDraftProjects(projects);
-  }, [projects]);
-  useEffect(() => {
-    setDraftAlbums(galleryAlbums);
-  }, [galleryAlbums]);
-  useEffect(() => {
-    setDraftDocs(transparencyDocs);
-  }, [transparencyDocs]);
-  useEffect(() => {
-    setDraftRsvps(rsvps);
-  }, [rsvps]);
-  useEffect(() => {
-    setDraftMessages(contactMessages);
-  }, [contactMessages]);
+  // Os rascunhos de conteúdo são sincronizados por useSyncedDraft, que preserva edições não salvas
   useEffect(() => {
     setDraftCreds(creds);
   }, [creds]);
@@ -688,7 +667,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
   const [msgSearch, setMsgSearch] = useState('');
   const [msgStatusFilter, setMsgStatusFilter] = useState<'all' | 'unread' | 'read'>('all');
 
-  const [showAdminNewPassword, setShowAdminNewPassword] = useState(false);
   const [showAdminPin, setShowAdminPin] = useState(false);
 
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -1027,17 +1005,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
         showToast('Informe um e-mail institucional válido na aba Segurança.', 'error');
         return false;
       }
-      const pwdCheck = validatePasswordStrength(draftCreds.passwordHashOrPlain);
-      if (!pwdCheck.valid) {
-        showToast(pwdCheck.reason || 'Senha fraca.', 'error');
-        return false;
-      }
       if (!/^\d{6}$/.test(draftCreds.securityPin.trim())) {
         showToast('O PIN de segurança deve conter exatamente 6 dígitos numéricos.', 'error');
         return false;
       }
-      setCreds(draftCreds);
-      localStorage.setItem('vitalizar_admin_credentials', JSON.stringify(draftCreds));
+      const credsToStore = { ...draftCreds, passwordHashOrPlain: '' };
+      setCreds(credsToStore);
+      localStorage.setItem('vitalizar_admin_credentials', JSON.stringify(credsToStore));
     }
 
     // 8. Persist all data to ClubDataContext, localStorage and Firestore
@@ -1089,7 +1063,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
     setIsAuthenticatingFirebase(true);
 
     try {
-      // 1. Attempt Firebase Email/Password Authentication first if configured
+      // Acesso somente via Firebase Auth: as regras do Firestore só aceitam escrita de admins autenticados
       try {
         const fbUser = await loginWithEmailPasswordFirebase(loginEmail, loginPass);
         if (fbUser) {
@@ -1118,21 +1092,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
           return;
         }
       } catch {
-        // Fallback to institutional admin credentials check
+        // Erro de rede/Firebase: cai na mensagem abaixo
       }
-
-      // 2. Institutional Admin Credentials Validation with Rate Limiting
-      const result = validateAdminCredentials(loginEmail, loginPass, creds, rateLimit);
-      setRateLimit(result.updatedRateLimit);
-      localStorage.setItem('vitalizar_admin_ratelimit', JSON.stringify(result.updatedRateLimit));
-
-      if (result.success && result.session) {
-        setSession(result.session);
-        sessionStorage.setItem('vitalizar_admin_session', JSON.stringify(result.session));
-        showToast('Bem-vindo ao Painel de Controle Vitalizar!', 'success');
-      } else {
-        setLoginError(result.reason || 'Credenciais administrativas inválidas.');
-      }
+      setLoginError('E-mail ou senha inválidos. Use sua conta Firebase ou entre com o Google.');
     } finally {
       setIsAuthenticatingFirebase(false);
     }
@@ -1403,16 +1365,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
                 <span>Acesso Restrito a Administradores</span>
               </span>
-              <button
-                type="button"
-                onClick={() => {
-                  setLoginEmail(creds.email || 'admin@vitalizar.org.br');
-                  setLoginPass(creds.passwordHashOrPlain || 'vitalizar2026!');
-                }}
-                className="text-[#0284c7] hover:underline font-bold cursor-pointer"
-              >
-                Preencher Credencial Admin
-              </button>
             </div>
           </div>
         </div>
@@ -1873,7 +1825,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                     {auditLogs.length > 0 && (
                       <button
                         type="button"
-                        onClick={clearAuditLogs}
+                        onClick={() => {
+                          if (window.confirm('Apagar todo o histórico de auditoria? Esta ação não pode ser desfeita.')) {
+                            clearAuditLogs();
+                          }
+                        }}
                         className="text-[11px] font-bold text-slate-400 hover:text-rose-600 cursor-pointer transition-colors"
                       >
                         Limpar Histórico
@@ -4013,12 +3969,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                             disabled={index === 0}
                             onClick={() => {
                               if (index === 0) return;
-                              const next = [...draftSponsors];
-                              const temp = next[index - 1];
-                              next[index - 1] = next[index];
-                              next[index] = temp;
-                              next.forEach((s, i) => (s.order = i + 1));
-                              setDraftSponsors(next);
+                              setDraftSponsors(swapSponsors(draftSponsors, spon.id, filteredSponsors[index - 1].id));
                             }}
                             className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 rounded hover:bg-slate-100 cursor-pointer"
                             title="Subir na ordem de exibição"
@@ -4027,15 +3978,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           </button>
                           <button
                             type="button"
-                            disabled={index === draftSponsors.length - 1}
+                            disabled={index === filteredSponsors.length - 1}
                             onClick={() => {
-                              if (index === draftSponsors.length - 1) return;
-                              const next = [...draftSponsors];
-                              const temp = next[index + 1];
-                              next[index + 1] = next[index];
-                              next[index] = temp;
-                              next.forEach((s, i) => (s.order = i + 1));
-                              setDraftSponsors(next);
+                              if (index === filteredSponsors.length - 1) return;
+                              setDraftSponsors(swapSponsors(draftSponsors, spon.id, filteredSponsors[index + 1].id));
                             }}
                             className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 rounded hover:bg-slate-100 cursor-pointer"
                             title="Descer na ordem de exibição"
@@ -6456,6 +6402,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                               </button>
                               <button
                                 onClick={() => {
+                                  if (!window.confirm(`Excluir a mensagem de ${msg.name}?`)) return;
                                   setDraftMessages((prev) =>
                                     prev.filter((m) => m.id !== msg.id)
                                   );
@@ -6480,7 +6427,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
           {/* TAB 10: SEGURANÇA & SENHA (WITH VALIDATION & SHOW/HIDE TOGGLES) */}
           {/* ========================================================================= */}
           {activeTab === 'seguranca' && (() => {
-            const pwdStrength = validatePasswordStrength(draftCreds.passwordHashOrPlain);
             const pinValid = /^\d{6}$/.test(draftCreds.securityPin.trim());
 
             return (
@@ -6493,7 +6439,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                     Credenciais Administrativas & PIN
                   </h2>
                   <p className="text-xs text-slate-600 mt-1">
-                    Atualize o e-mail de acesso, senha mestre ou o PIN de segurança para ações críticas. As alterações só serão efetivadas ao clicar em Salvar.
+                    Atualize o e-mail do administrador ou o PIN de segurança para ações críticas. A senha de acesso é a da sua conta Firebase/Google. As alterações só serão efetivadas ao clicar em Salvar.
                   </p>
                 </div>
 
@@ -6515,42 +6461,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                       onChange={(e) => setDraftCreds({ ...draftCreds, email: e.target.value })}
                       className="w-full text-xs p-2.5 bg-slate-50 border border-slate-300 rounded-lg"
                     />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                      Senha do Administrador *
-                    </label>
-                    <div className="relative">
-                      <input
-                        type={showAdminNewPassword ? 'text' : 'password'}
-                        value={draftCreds.passwordHashOrPlain}
-                        onChange={(e) =>
-                          setDraftCreds({ ...draftCreds, passwordHashOrPlain: e.target.value })
-                        }
-                        className="w-full text-xs p-2.5 pr-10 bg-slate-50 border border-slate-300 rounded-lg font-mono"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowAdminNewPassword(!showAdminNewPassword)}
-                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 p-1 cursor-pointer"
-                      >
-                        {showAdminNewPassword ? (
-                          <EyeOff className="w-4 h-4" />
-                        ) : (
-                          <Eye className="w-4 h-4" />
-                        )}
-                      </button>
-                    </div>
-                    <span
-                      className={`text-[11px] mt-1 block font-medium ${
-                        pwdStrength.valid ? 'text-emerald-600' : 'text-amber-700'
-                      }`}
-                    >
-                      {pwdStrength.valid
-                        ? '✓ Senha forte (atende aos requisitos de letras e números).'
-                        : pwdStrength.reason}
-                    </span>
                   </div>
 
                   <div>
@@ -6717,6 +6627,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           onChange={(e) => {
                             const file = e.target.files?.[0];
                             if (!file) return;
+                            if (
+                              !window.confirm(
+                                `Restaurar o backup "${file.name}"? Todos os dados atuais do site serão substituídos pelos do arquivo.`
+                              )
+                            ) {
+                              e.target.value = '';
+                              return;
+                            }
                             const reader = new FileReader();
                             reader.onload = (event) => {
                               const content = event.target?.result as string;
