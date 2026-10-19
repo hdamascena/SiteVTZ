@@ -547,7 +547,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
             const now = Date.now();
             const newSession: AdminSession = {
               token: `FB-ADM-${Math.random().toString(36).slice(2, 10).toUpperCase()}-${now.toString(36).toUpperCase()}`,
-              createdAt: now,
+              loginTime: now,
               expiresAt: now + 2 * 60 * 60 * 1000,
               adminEmail: user.email || creds.email,
             };
@@ -1041,7 +1041,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
           const now = Date.now();
           const fbSession: AdminSession = {
             token: `FB-ADM-${Math.random().toString(36).slice(2, 10).toUpperCase()}-${now.toString(36).toUpperCase()}`,
-            createdAt: now,
+            loginTime: now,
             expiresAt: now + 2 * 60 * 60 * 1000,
             adminEmail: fbUser.email || loginEmail.trim(),
           };
@@ -1092,7 +1092,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
         const now = Date.now();
         const googleSession: AdminSession = {
           token: `FB-GGL-${Math.random().toString(36).slice(2, 10).toUpperCase()}-${now.toString(36).toUpperCase()}`,
-          createdAt: now,
+          loginTime: now,
           expiresAt: now + 2 * 60 * 60 * 1000,
           adminEmail: user.email || creds.email,
         };
