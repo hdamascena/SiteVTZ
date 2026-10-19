@@ -1,0 +1,901 @@
+import React, { createContext, useContext, useState } from 'react';
+import {
+  CLUB_INFO,
+  NEWS_ARTICLES,
+  VITALIZAR_EVENTS,
+  VITALIZAR_PROJECTS,
+  TRANSPARENCY_DOCUMENTS,
+} from '../data/clubeData.ts';
+import type {
+  NewsArticle,
+  VitalizarEvent,
+  VitalizarProject,
+  TransparencyDocument,
+  PastEventPhoto,
+} from '../types/index.ts';
+import {
+  createAuditLogEntry,
+  validateBackupSchema,
+} from '../utils/adminAuth.ts';
+import type { AuditLogEntry } from '../utils/adminAuth.ts';
+
+export const INITIAL_GALLERY_ALBUMS: PastEventPhoto[] = [
+  {
+    id: 'gal-1',
+    title: 'Festival Esportivo Comunitário de Rio Marinho',
+    category: 'Festivais Esportivos',
+    date: 'Agosto 2026',
+    location: 'Quadra Poliesportiva de Rio Marinho · Cariacica/ES',
+    coverUrl: 'https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=1000&q=80',
+    caption:
+      'Mais de 250 crianças e adolescentes participaram dos torneios de integração em Rio Marinho.',
+    albumPhotos: [
+      {
+        url: 'https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=1200&q=80',
+        caption: 'Abertura oficial do Festival Esportivo Comunitário com as turmas Sub-11 e Sub-15.',
+      },
+      {
+        url: 'https://images.unsplash.com/photo-1546519638-68e109498ffc?w=1200&q=80',
+        caption: 'Partidas decisivas de futsal e basquete educacional com presença das famílias.',
+      },
+      {
+        url: 'https://images.unsplash.com/photo-1517466787929-bc90951d0974?w=1200&q=80',
+        caption: 'Entrega de medalhas de participação e troféu Fair Play.',
+      },
+    ],
+  },
+  {
+    id: 'gal-2',
+    title: 'Copa Vitalizar de Futsal e Voleibol de Base',
+    category: 'Categorias de Base',
+    date: 'Julho 2026',
+    location: 'Ginásio Poliesportivo · Cariacica/ES',
+    coverUrl: 'https://images.unsplash.com/photo-1612872087720-bb876e2e67d1?w=1000&q=80',
+    caption: 'Equipes femininas e masculinas Sub-14 e Sub-17 em competição pedagógica.',
+    albumPhotos: [
+      {
+        url: 'https://images.unsplash.com/photo-1612872087720-bb876e2e67d1?w=1200&q=80',
+        caption: 'Equipe feminina de voleibol Sub-15 durante a final municipal.',
+      },
+      {
+        url: 'https://images.unsplash.com/photo-1546519638-68e109498ffc?w=1200&q=80',
+        caption: 'Aquecimento coletivo orientado pelos professores de educação física da Vitalizar.',
+      },
+      {
+        url: 'https://images.unsplash.com/photo-1577471488278-16eec37ffcc2?w=1200&q=80',
+        caption: 'Roda de conversa sobre disciplina esportiva e rendimento escolar.',
+      },
+    ],
+  },
+  {
+    id: 'gal-3',
+    title: 'Circuito Saúde & Movimento – Vida Ativa',
+    category: 'Saúde & Vida Ativa',
+    date: 'Junho 2026',
+    location: 'Praça Principal de Rio Marinho · Cariacica/ES',
+    coverUrl: 'https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=1000&q=80',
+    caption: 'Aulão funcional, alongamento e acompanhamento preventivo para adultos e idosos.',
+    albumPhotos: [
+      {
+        url: 'https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=1200&q=80',
+        caption: 'Grupo da terceira idade em atividade de mobilidade articular e prevenção de quedas.',
+      },
+      {
+        url: 'https://images.unsplash.com/photo-1517838277536-f5f99be501cd?w=1200&q=80',
+        caption: 'Aula coletiva de ginástica funcional ao ar livre.',
+      },
+    ],
+  },
+  {
+    id: 'gal-4',
+    title: 'Colônia de Férias Campeões da Cidadania',
+    category: 'Inclusão & Comunidade',
+    date: 'Janeiro 2026',
+    location: 'Polo Rio Marinho · Cariacica/ES',
+    coverUrl: 'https://images.unsplash.com/photo-1511632765486-a01980e01a18?w=1000&q=80',
+    caption: 'Semana recreativa com gincanas, oficinas culturais, capoeira e esporte adaptado.',
+    albumPhotos: [
+      {
+        url: 'https://images.unsplash.com/photo-1511632765486-a01980e01a18?w=1200&q=80',
+        caption: 'Atividades recreativas integradas para crianças da comunidade.',
+      },
+      {
+        url: 'https://images.unsplash.com/photo-1509062522246-3755977927d7?w=1200&q=80',
+        caption: 'Brincadeiras cooperativas e circuitos psicomotores.',
+      },
+      {
+        url: 'https://images.unsplash.com/photo-1472162072942-cd5147eb3902?w=1200&q=80',
+        caption: 'Encerramento com apresentação cultural e integração comunitária.',
+      },
+    ],
+  },
+];
+
+export interface EventRsvpRecord {
+  id: string;
+  eventId: string;
+  eventTitle: string;
+  name: string;
+  phone: string;
+  spots: number;
+  date: string;
+  confirmationCode: string;
+}
+
+export interface ContactMessageRecord {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  subject: string;
+  message: string;
+  date: string;
+  read: boolean;
+}
+
+export interface ToastNotification {
+  id: string;
+  message: string;
+  type: 'success' | 'info' | 'error';
+}
+
+interface ClubDataContextType {
+  clubInfo: typeof CLUB_INFO;
+  setClubInfo: (info: typeof CLUB_INFO) => void;
+  newsArticles: NewsArticle[];
+  addNewsArticle: (article: Omit<NewsArticle, 'id'>) => void;
+  updateNewsArticle: (article: NewsArticle) => void;
+  deleteNewsArticle: (id: string) => void;
+  events: VitalizarEvent[];
+  addEvent: (event: Omit<VitalizarEvent, 'id'>) => void;
+  updateEvent: (event: VitalizarEvent) => void;
+  deleteEvent: (id: string) => void;
+  rsvps: EventRsvpRecord[];
+  addRsvp: (rsvp: Omit<EventRsvpRecord, 'id' | 'confirmationCode' | 'date'>) => string;
+  deleteRsvp: (id: string) => void;
+  projects: VitalizarProject[];
+  addProject: (project: Omit<VitalizarProject, 'id'>) => void;
+  updateProject: (project: VitalizarProject) => void;
+  deleteProject: (id: string) => void;
+  galleryAlbums: PastEventPhoto[];
+  addGalleryAlbum: (album: Omit<PastEventPhoto, 'id'>) => void;
+  updateGalleryAlbum: (album: PastEventPhoto) => void;
+  deleteGalleryAlbum: (id: string) => void;
+  transparencyDocs: TransparencyDocument[];
+  addTransparencyDoc: (doc: Omit<TransparencyDocument, 'id'>) => void;
+  updateTransparencyDoc: (doc: TransparencyDocument) => void;
+  deleteTransparencyDoc: (id: string) => void;
+  contactMessages: ContactMessageRecord[];
+  addContactMessage: (msg: Omit<ContactMessageRecord, 'id' | 'date' | 'read'>) => void;
+  markContactMessageRead: (id: string) => void;
+  deleteContactMessage: (id: string) => void;
+  auditLogs: AuditLogEntry[];
+  addAuditLog: (action: string, details?: string, adminEmail?: string) => void;
+  clearAuditLogs: () => void;
+  resetAllToDefaults: () => void;
+  exportDatabaseJson: () => string;
+  importDatabaseJson: (jsonString: string) => { success: boolean; message: string };
+  saveAdminChanges: (payload: {
+    clubInfo?: typeof CLUB_INFO;
+    newsArticles?: NewsArticle[];
+    events?: VitalizarEvent[];
+    projects?: VitalizarProject[];
+    galleryAlbums?: PastEventPhoto[];
+    transparencyDocs?: TransparencyDocument[];
+    rsvps?: EventRsvpRecord[];
+    contactMessages?: ContactMessageRecord[];
+    logDetails?: string;
+    toastMessage?: string;
+  }) => boolean;
+  toasts: ToastNotification[];
+  showToast: (message: string, type?: 'success' | 'info' | 'error') => void;
+  removeToast: (id: string) => void;
+}
+
+const STORAGE_KEYS = {
+  CLUB_INFO: 'vitalizar_db_club_info',
+  NEWS: 'vitalizar_db_news',
+  EVENTS: 'vitalizar_db_events',
+  PROJECTS: 'vitalizar_db_projects',
+  GALLERY: 'vitalizar_db_gallery',
+  TRANSPARENCY: 'vitalizar_db_transparency',
+  RSVPS: 'vitalizar_db_rsvps',
+  MESSAGES: 'vitalizar_db_messages',
+  LOGS: 'vitalizar_db_logs',
+};
+
+const ClubDataContext = createContext<ClubDataContextType | null>(null);
+
+export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  // 1. Club Info
+  const [clubInfo, setClubInfoState] = useState<typeof CLUB_INFO>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.CLUB_INFO);
+      return saved ? JSON.parse(saved) : CLUB_INFO;
+    } catch {
+      return CLUB_INFO;
+    }
+  });
+
+  // 2. News
+  const [newsArticles, setNewsArticles] = useState<NewsArticle[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.NEWS);
+      return saved ? JSON.parse(saved) : NEWS_ARTICLES;
+    } catch {
+      return NEWS_ARTICLES;
+    }
+  });
+
+  // 3. Events
+  const [events, setEvents] = useState<VitalizarEvent[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.EVENTS);
+      return saved ? JSON.parse(saved) : VITALIZAR_EVENTS;
+    } catch {
+      return VITALIZAR_EVENTS;
+    }
+  });
+
+  // 4. Projects
+  const [projects, setProjects] = useState<VitalizarProject[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.PROJECTS);
+      return saved ? JSON.parse(saved) : VITALIZAR_PROJECTS;
+    } catch {
+      return VITALIZAR_PROJECTS;
+    }
+  });
+
+  // 4b. Gallery Albums
+  const [galleryAlbums, setGalleryAlbums] = useState<PastEventPhoto[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.GALLERY);
+      return saved ? JSON.parse(saved) : INITIAL_GALLERY_ALBUMS;
+    } catch {
+      return INITIAL_GALLERY_ALBUMS;
+    }
+  });
+
+  // 5. Transparency Docs
+  const [transparencyDocs, setTransparencyDocs] = useState<TransparencyDocument[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.TRANSPARENCY);
+      return saved ? JSON.parse(saved) : TRANSPARENCY_DOCUMENTS;
+    } catch {
+      return TRANSPARENCY_DOCUMENTS;
+    }
+  });
+
+  // 6. RSVPs
+  const [rsvps, setRsvps] = useState<EventRsvpRecord[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.RSVPS);
+      return saved
+        ? JSON.parse(saved)
+        : [
+            {
+              id: 'rsvp-seed-1',
+              eventId: 'clinica-futsal-transicoes',
+              eventTitle: 'Clínica de Futsal: Transições Rápidas',
+              name: 'Marcos Vinicius Santos',
+              phone: '(27) 99823-1144',
+              spots: 2,
+              date: new Date().toLocaleDateString('pt-BR'),
+              confirmationCode: 'VTL-FUTSAL-8921',
+            },
+            {
+              id: 'rsvp-seed-2',
+              eventId: 'oficina-primeiros-socorros',
+              eventTitle: 'Oficina de Primeiros Socorros & Prevenção no Esporte',
+              name: 'Ana Cláudia Ribeiro',
+              phone: '(27) 98112-4590',
+              spots: 1,
+              date: new Date().toLocaleDateString('pt-BR'),
+              confirmationCode: 'VTL-SOCORR-3482',
+            },
+          ];
+    } catch {
+      return [];
+    }
+  });
+
+  // 7. Contact Messages
+  const [contactMessages, setContactMessages] = useState<ContactMessageRecord[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.MESSAGES);
+      return saved
+        ? JSON.parse(saved)
+        : [
+            {
+              id: 'msg-seed-1',
+              name: 'Carlos Eduardo Lima',
+              email: 'carlos.lima@gmail.com',
+              phone: '(27) 99765-4321',
+              subject: 'Voluntariado',
+              message:
+                'Gostaria de me candidatar como voluntário para dar aulas de reforço escolar e apoio aos treinos de futsal nos finais de semana.',
+              date: '14/10/2026 16:40',
+              read: false,
+            },
+          ];
+    } catch {
+      return [];
+    }
+  });
+
+  // 8. Audit Logs
+  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.LOGS);
+      return saved
+        ? JSON.parse(saved)
+        : [
+            createAuditLogEntry(
+              'SISTEMA_INICIALIZADO',
+              'sistema@vitalizar.org.br',
+              'Base de dados inicial da Associação Vitalizar carregada.'
+            ),
+          ];
+    } catch {
+      return [];
+    }
+  });
+
+  // 9. Toasts
+  const [toasts, setToasts] = useState<ToastNotification[]>([]);
+
+  const showToast = (message: string, type: 'success' | 'info' | 'error' = 'success') => {
+    const id = `toast-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    setToasts((prev) => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      removeToast(id);
+    }, 4000);
+  };
+
+  const removeToast = (id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  };
+
+  // Sync helpers to localStorage
+  const setClubInfo = (info: typeof CLUB_INFO) => {
+    setClubInfoState(info);
+    localStorage.setItem(STORAGE_KEYS.CLUB_INFO, JSON.stringify(info));
+    addAuditLog('DADOS_ENTIDADE_ALTERADOS', 'Informações institucionais da Vitalizar atualizadas.');
+    showToast('Dados da entidade atualizados com sucesso!');
+  };
+
+  const addAuditLog = (action: string, details?: string, adminEmail: string = 'admin@vitalizar.org.br') => {
+    const entry = createAuditLogEntry(action, adminEmail, details);
+    setAuditLogs((prev) => {
+      const updated = [entry, ...prev].slice(0, 50);
+      localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  // News CRUD
+  const addNewsArticle = (articleData: Omit<NewsArticle, 'id'>) => {
+    const newArticle: NewsArticle = {
+      ...articleData,
+      id: `noticia-${Date.now()}`,
+      views: 1,
+    };
+    setNewsArticles((prev) => {
+      const updated = [newArticle, ...prev];
+      localStorage.setItem(STORAGE_KEYS.NEWS, JSON.stringify(updated));
+      return updated;
+    });
+    addAuditLog('NOTICIA_CRIADA', `Notícia "${newArticle.title}" publicada.`);
+    showToast('Nova notícia publicada com sucesso!');
+  };
+
+  const updateNewsArticle = (article: NewsArticle) => {
+    setNewsArticles((prev) => {
+      const updated = prev.map((item) => (item.id === article.id ? article : item));
+      localStorage.setItem(STORAGE_KEYS.NEWS, JSON.stringify(updated));
+      return updated;
+    });
+    addAuditLog('NOTICIA_EDITADA', `Notícia "${article.title}" atualizada.`);
+    showToast('Notícia atualizada com sucesso!');
+  };
+
+  const deleteNewsArticle = (id: string) => {
+    setNewsArticles((prev) => {
+      const article = prev.find((a) => a.id === id);
+      const updated = prev.filter((item) => item.id !== id);
+      localStorage.setItem(STORAGE_KEYS.NEWS, JSON.stringify(updated));
+      if (article) {
+        addAuditLog('NOTICIA_EXCLUIDA', `Notícia "${article.title}" removida.`);
+      }
+      return updated;
+    });
+    showToast('Notícia removida.');
+  };
+
+  // Events CRUD
+  const addEvent = (eventData: Omit<VitalizarEvent, 'id'>) => {
+    const newEvent: VitalizarEvent = {
+      ...eventData,
+      id: `evento-${Date.now()}`,
+    };
+    setEvents((prev) => {
+      const updated = [newEvent, ...prev];
+      localStorage.setItem(STORAGE_KEYS.EVENTS, JSON.stringify(updated));
+      return updated;
+    });
+    addAuditLog('EVENTO_CRIADO', `Atividade "${newEvent.title}" adicionada ao calendário.`);
+    showToast('Evento adicionado ao calendário!');
+  };
+
+  const updateEvent = (event: VitalizarEvent) => {
+    setEvents((prev) => {
+      const updated = prev.map((e) => (e.id === event.id ? event : e));
+      localStorage.setItem(STORAGE_KEYS.EVENTS, JSON.stringify(updated));
+      return updated;
+    });
+    addAuditLog('EVENTO_EDITADO', `Atividade "${event.title}" atualizada.`);
+    showToast('Evento atualizado com sucesso!');
+  };
+
+  const deleteEvent = (id: string) => {
+    setEvents((prev) => {
+      const ev = prev.find((e) => e.id === id);
+      const updated = prev.filter((e) => e.id !== id);
+      localStorage.setItem(STORAGE_KEYS.EVENTS, JSON.stringify(updated));
+      if (ev) {
+        addAuditLog('EVENTO_EXCLUIDO', `Atividade "${ev.title}" removida do calendário.`);
+      }
+      return updated;
+    });
+    showToast('Evento excluído.');
+  };
+
+  // RSVPs
+  const addRsvp = (rsvpData: Omit<EventRsvpRecord, 'id' | 'confirmationCode' | 'date'>): string => {
+    const confirmationCode = `VTL-${rsvpData.eventId.toUpperCase().slice(0, 6)}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const newRsvp: EventRsvpRecord = {
+      ...rsvpData,
+      id: `rsvp-${Date.now()}`,
+      confirmationCode,
+      date: new Date().toLocaleString('pt-BR'),
+    };
+
+    setRsvps((prev) => {
+      const updated = [newRsvp, ...prev];
+      localStorage.setItem(STORAGE_KEYS.RSVPS, JSON.stringify(updated));
+      return updated;
+    });
+
+    setEvents((prev) => {
+      const updated = prev.map((ev) => {
+        if (ev.id === rsvpData.eventId) {
+          const newSpots = Math.max(0, ev.availableSpots - rsvpData.spots);
+          return {
+            ...ev,
+            availableSpots: newSpots,
+            status: newSpots === 0 ? 'em_breve' : newSpots <= 5 ? 'vagas_limitadas' : ev.status,
+          };
+        }
+        return ev;
+      });
+      localStorage.setItem(STORAGE_KEYS.EVENTS, JSON.stringify(updated));
+      return updated;
+    });
+
+    addAuditLog('RSVP_REGISTRADO', `Inscrição de ${rsvpData.name} no evento "${rsvpData.eventTitle}" (${rsvpData.spots} vaga(s)).`);
+    return confirmationCode;
+  };
+
+  const deleteRsvp = (id: string) => {
+    setRsvps((prev) => {
+      const rsvp = prev.find((r) => r.id === id);
+      const updated = prev.filter((r) => r.id !== id);
+      localStorage.setItem(STORAGE_KEYS.RSVPS, JSON.stringify(updated));
+      if (rsvp) {
+        addAuditLog('RSVP_CANCELADO', `Inscrição de ${rsvp.name} para "${rsvp.eventTitle}" cancelada.`);
+      }
+      return updated;
+    });
+    showToast('Inscrição cancelada.');
+  };
+
+  // Projects CRUD
+  const addProject = (projectData: Omit<VitalizarProject, 'id'>) => {
+    const newProj: VitalizarProject = {
+      ...projectData,
+      id: `projeto-${Date.now()}`,
+    };
+    setProjects((prev) => {
+      const updated = [newProj, ...prev];
+      localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(updated));
+      return updated;
+    });
+    addAuditLog('PROJETO_CRIADO', `Novo projeto esportivo "${newProj.name}" cadastrado.`);
+    showToast('Novo projeto esportivo cadastrado!');
+  };
+
+  const updateProject = (project: VitalizarProject) => {
+    setProjects((prev) => {
+      const updated = prev.map((p) => (p.id === project.id ? project : p));
+      localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(updated));
+      return updated;
+    });
+    addAuditLog('PROJETO_ATUALIZADO', `Projeto esportivo "${project.name}" atualizado.`);
+    showToast('Projeto esportivo atualizado!');
+  };
+
+  const deleteProject = (id: string) => {
+    setProjects((prev) => {
+      const proj = prev.find((p) => p.id === id);
+      const updated = prev.filter((p) => p.id !== id);
+      localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(updated));
+      if (proj) {
+        addAuditLog('PROJETO_EXCLUIDO', `Projeto esportivo "${proj.name}" removido.`);
+      }
+      return updated;
+    });
+    showToast('Projeto removido.');
+  };
+
+  // Gallery Albums CRUD
+  const addGalleryAlbum = (albumData: Omit<PastEventPhoto, 'id'>) => {
+    const newAlbum: PastEventPhoto = {
+      ...albumData,
+      id: `album-${Date.now()}`,
+    };
+    setGalleryAlbums((prev) => {
+      const updated = [newAlbum, ...prev];
+      localStorage.setItem(STORAGE_KEYS.GALLERY, JSON.stringify(updated));
+      return updated;
+    });
+    addAuditLog('ALBUM_CRIADO', `Álbum de fotos "${newAlbum.title}" adicionado à galeria.`);
+    showToast('Álbum de fotos publicado na galeria!');
+  };
+
+  const updateGalleryAlbum = (album: PastEventPhoto) => {
+    setGalleryAlbums((prev) => {
+      const updated = prev.map((a) => (a.id === album.id ? album : a));
+      localStorage.setItem(STORAGE_KEYS.GALLERY, JSON.stringify(updated));
+      return updated;
+    });
+    addAuditLog('ALBUM_EDITADO', `Álbum de fotos "${album.title}" atualizado.`);
+    showToast('Álbum de fotos atualizado!');
+  };
+
+  const deleteGalleryAlbum = (id: string) => {
+    setGalleryAlbums((prev) => {
+      const alb = prev.find((a) => a.id === id);
+      const updated = prev.filter((a) => a.id !== id);
+      localStorage.setItem(STORAGE_KEYS.GALLERY, JSON.stringify(updated));
+      if (alb) {
+        addAuditLog('ALBUM_EXCLUIDO', `Álbum de fotos "${alb.title}" removido.`);
+      }
+      return updated;
+    });
+    showToast('Álbum removido da galeria.');
+  };
+
+  // Transparency Docs CRUD
+  const addTransparencyDoc = (docData: Omit<TransparencyDocument, 'id'>) => {
+    const newDoc: TransparencyDocument = {
+      ...docData,
+      id: `doc-${Date.now()}`,
+    };
+    setTransparencyDocs((prev) => {
+      const updated = [newDoc, ...prev];
+      localStorage.setItem(STORAGE_KEYS.TRANSPARENCY, JSON.stringify(updated));
+      return updated;
+    });
+    addAuditLog('DOCUMENTO_TRANSPARENCIA_CRIADO', `Documento MROSC "${newDoc.title}" publicado.`);
+    showToast('Documento publicado no Portal da Transparência!');
+  };
+
+  const updateTransparencyDoc = (doc: TransparencyDocument) => {
+    setTransparencyDocs((prev) => {
+      const updated = prev.map((d) => (d.id === doc.id ? doc : d));
+      localStorage.setItem(STORAGE_KEYS.TRANSPARENCY, JSON.stringify(updated));
+      return updated;
+    });
+    addAuditLog('DOCUMENTO_TRANSPARENCIA_EDITADO', `Documento "${doc.title}" atualizado.`);
+    showToast('Documento atualizado com sucesso!');
+  };
+
+  const deleteTransparencyDoc = (id: string) => {
+    setTransparencyDocs((prev) => {
+      const doc = prev.find((d) => d.id === id);
+      const updated = prev.filter((d) => d.id !== id);
+      localStorage.setItem(STORAGE_KEYS.TRANSPARENCY, JSON.stringify(updated));
+      if (doc) {
+        addAuditLog('DOCUMENTO_TRANSPARENCIA_REMOVIDO', `Documento "${doc.title}" removido.`);
+      }
+      return updated;
+    });
+    showToast('Documento removido da transparência.');
+  };
+
+  // Contact Messages
+  const addContactMessage = (msgData: Omit<ContactMessageRecord, 'id' | 'date' | 'read'>) => {
+    const newMsg: ContactMessageRecord = {
+      ...msgData,
+      id: `msg-${Date.now()}`,
+      date: new Date().toLocaleString('pt-BR'),
+      read: false,
+    };
+    setContactMessages((prev) => {
+      const updated = [newMsg, ...prev];
+      localStorage.setItem(STORAGE_KEYS.MESSAGES, JSON.stringify(updated));
+      return updated;
+    });
+    addAuditLog('MENSAGEM_RECEBIDA', `Contato recebido de ${msgData.name} - Assunto: ${msgData.subject}`);
+  };
+
+  const markContactMessageRead = (id: string) => {
+    setContactMessages((prev) => {
+      const updated = prev.map((m) => (m.id === id ? { ...m, read: true } : m));
+      localStorage.setItem(STORAGE_KEYS.MESSAGES, JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const deleteContactMessage = (id: string) => {
+    setContactMessages((prev) => {
+      const updated = prev.filter((m) => m.id !== id);
+      localStorage.setItem(STORAGE_KEYS.MESSAGES, JSON.stringify(updated));
+      return updated;
+    });
+    showToast('Mensagem excluída.');
+  };
+
+  // Reset to Defaults
+  const resetAllToDefaults = () => {
+    localStorage.removeItem(STORAGE_KEYS.CLUB_INFO);
+    localStorage.removeItem(STORAGE_KEYS.NEWS);
+    localStorage.removeItem(STORAGE_KEYS.EVENTS);
+    localStorage.removeItem(STORAGE_KEYS.PROJECTS);
+    localStorage.removeItem(STORAGE_KEYS.GALLERY);
+    localStorage.removeItem(STORAGE_KEYS.TRANSPARENCY);
+    localStorage.removeItem(STORAGE_KEYS.RSVPS);
+    localStorage.removeItem(STORAGE_KEYS.MESSAGES);
+
+    setClubInfoState(CLUB_INFO);
+    setNewsArticles(NEWS_ARTICLES);
+    setEvents(VITALIZAR_EVENTS);
+    setProjects(VITALIZAR_PROJECTS);
+    setGalleryAlbums(INITIAL_GALLERY_ALBUMS);
+    setTransparencyDocs(TRANSPARENCY_DOCUMENTS);
+    setRsvps([]);
+    setContactMessages([]);
+
+    addAuditLog('REDEFINICAO_COMPLETA', 'Todos os dados foram redefinidos para os padrões da Associação Vitalizar.');
+    showToast('Dados restaurados para os padrões originais com sucesso!', 'info');
+  };
+
+  // Export / Import
+  const exportDatabaseJson = (): string => {
+    const payload = {
+      version: '1.1',
+      exportDate: new Date().toISOString(),
+      clubInfo,
+      newsArticles,
+      events,
+      projects,
+      galleryAlbums,
+      transparencyDocs,
+      rsvps,
+      contactMessages,
+    };
+    addAuditLog('BACKUP_EXPORTADO', 'Backup completo do site Vitalizar foi exportado.');
+    return JSON.stringify(payload, null, 2);
+  };
+
+  const importDatabaseJson = (jsonString: string): { success: boolean; message: string } => {
+    try {
+      const parsed = JSON.parse(jsonString);
+      const validation = validateBackupSchema(parsed);
+      if (!validation.valid) {
+        return { success: false, message: `Erro de formato: ${validation.errors.join(', ')}` };
+      }
+
+      if (parsed.clubInfo) {
+        setClubInfoState(parsed.clubInfo);
+        localStorage.setItem(STORAGE_KEYS.CLUB_INFO, JSON.stringify(parsed.clubInfo));
+      }
+      if (Array.isArray(parsed.newsArticles)) {
+        setNewsArticles(parsed.newsArticles);
+        localStorage.setItem(STORAGE_KEYS.NEWS, JSON.stringify(parsed.newsArticles));
+      }
+      if (Array.isArray(parsed.events)) {
+        setEvents(parsed.events);
+        localStorage.setItem(STORAGE_KEYS.EVENTS, JSON.stringify(parsed.events));
+      }
+      if (Array.isArray(parsed.projects)) {
+        setProjects(parsed.projects);
+        localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(parsed.projects));
+      }
+      if (Array.isArray(parsed.galleryAlbums)) {
+        setGalleryAlbums(parsed.galleryAlbums);
+        localStorage.setItem(STORAGE_KEYS.GALLERY, JSON.stringify(parsed.galleryAlbums));
+      }
+      if (Array.isArray(parsed.transparencyDocs)) {
+        setTransparencyDocs(parsed.transparencyDocs);
+        localStorage.setItem(STORAGE_KEYS.TRANSPARENCY, JSON.stringify(parsed.transparencyDocs));
+      }
+      if (Array.isArray(parsed.rsvps)) {
+        setRsvps(parsed.rsvps);
+        localStorage.setItem(STORAGE_KEYS.RSVPS, JSON.stringify(parsed.rsvps));
+      }
+      if (Array.isArray(parsed.contactMessages)) {
+        setContactMessages(parsed.contactMessages);
+        localStorage.setItem(STORAGE_KEYS.MESSAGES, JSON.stringify(parsed.contactMessages));
+      }
+
+      addAuditLog('BACKUP_RESTAURADO', 'Backup importado com sucesso.');
+      showToast('Backup importado com sucesso!');
+      return { success: true, message: 'Banco de dados restaurado com sucesso!' };
+    } catch {
+      return { success: false, message: 'Arquivo JSON inválido, corrompido ou excede o limite de memória do navegador.' };
+    }
+  };
+
+  const clearAuditLogs = () => {
+    const initial = [
+      createAuditLogEntry(
+        'LOGS_LIMPOS',
+        'admin@vitalizar.org.br',
+        'Histórico de auditoria reiniciado pelo administrador.'
+      ),
+    ];
+    setAuditLogs(initial);
+    try {
+      localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(initial));
+    } catch {
+      // ignore quota error
+    }
+    showToast('Histórico de auditoria limpo com sucesso!', 'info');
+  };
+
+  const saveAdminChanges = (payload: {
+    clubInfo?: typeof CLUB_INFO;
+    newsArticles?: NewsArticle[];
+    events?: VitalizarEvent[];
+    projects?: VitalizarProject[];
+    galleryAlbums?: PastEventPhoto[];
+    transparencyDocs?: TransparencyDocument[];
+    rsvps?: EventRsvpRecord[];
+    contactMessages?: ContactMessageRecord[];
+    logDetails?: string;
+    toastMessage?: string;
+  }): boolean => {
+    try {
+      if (payload.clubInfo !== undefined) {
+        localStorage.setItem(STORAGE_KEYS.CLUB_INFO, JSON.stringify(payload.clubInfo));
+        setClubInfoState(payload.clubInfo);
+      }
+      if (payload.newsArticles !== undefined) {
+        localStorage.setItem(STORAGE_KEYS.NEWS, JSON.stringify(payload.newsArticles));
+        setNewsArticles(payload.newsArticles);
+      }
+      if (payload.events !== undefined) {
+        localStorage.setItem(STORAGE_KEYS.EVENTS, JSON.stringify(payload.events));
+        setEvents(payload.events);
+      }
+      if (payload.projects !== undefined) {
+        localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(payload.projects));
+        setProjects(payload.projects);
+      }
+      if (payload.galleryAlbums !== undefined) {
+        localStorage.setItem(STORAGE_KEYS.GALLERY, JSON.stringify(payload.galleryAlbums));
+        setGalleryAlbums(payload.galleryAlbums);
+      }
+      if (payload.transparencyDocs !== undefined) {
+        localStorage.setItem(STORAGE_KEYS.TRANSPARENCY, JSON.stringify(payload.transparencyDocs));
+        setTransparencyDocs(payload.transparencyDocs);
+      }
+      if (payload.rsvps !== undefined) {
+        localStorage.setItem(STORAGE_KEYS.RSVPS, JSON.stringify(payload.rsvps));
+        setRsvps(payload.rsvps);
+      }
+      if (payload.contactMessages !== undefined) {
+        localStorage.setItem(STORAGE_KEYS.MESSAGES, JSON.stringify(payload.contactMessages));
+        setContactMessages(payload.contactMessages);
+      }
+
+      addAuditLog(
+        'ALTERACOES_SALVAS',
+        payload.logDetails || 'Alterações administrativas salvas e publicadas no site.'
+      );
+      showToast(payload.toastMessage || 'Alterações salvas com sucesso!');
+      return true;
+    } catch {
+      showToast(
+        'Limite de armazenamento do navegador atingido. Remova anexos muito pesados ou use links externos.',
+        'error'
+      );
+      return false;
+    }
+  };
+
+  return (
+    <ClubDataContext.Provider
+      value={{
+        clubInfo,
+        setClubInfo,
+        newsArticles,
+        addNewsArticle,
+        updateNewsArticle,
+        deleteNewsArticle,
+        events,
+        addEvent,
+        updateEvent,
+        deleteEvent,
+        rsvps,
+        addRsvp,
+        deleteRsvp,
+        projects,
+        addProject,
+        updateProject,
+        deleteProject,
+        galleryAlbums,
+        addGalleryAlbum,
+        updateGalleryAlbum,
+        deleteGalleryAlbum,
+        transparencyDocs,
+        addTransparencyDoc,
+        updateTransparencyDoc,
+        deleteTransparencyDoc,
+        contactMessages,
+        addContactMessage,
+        markContactMessageRead,
+        deleteContactMessage,
+        auditLogs,
+        addAuditLog,
+        clearAuditLogs,
+        resetAllToDefaults,
+        exportDatabaseJson,
+        importDatabaseJson,
+        saveAdminChanges,
+        toasts,
+        showToast,
+        removeToast,
+      }}
+    >
+      {children}
+
+      {/* Floating Global Toasts for Instant UX Feedback */}
+      {toasts.length > 0 && (
+        <div className="fixed bottom-5 right-5 z-[100] flex flex-col gap-2 max-w-sm pointer-events-none">
+          {toasts.map((toast) => (
+            <div
+              key={toast.id}
+              className={`pointer-events-auto p-4 rounded-xl shadow-2xl text-xs font-semibold flex items-center justify-between gap-3 text-white border transition-all animate-in slide-in-from-bottom-3 duration-200 ${
+                toast.type === 'error'
+                  ? 'bg-rose-600 border-rose-700'
+                  : toast.type === 'info'
+                  ? 'bg-[#0a1e36] border-sky-400'
+                  : 'bg-emerald-700 border-emerald-600'
+              }`}
+            >
+              <span>{toast.message}</span>
+              <button
+                onClick={() => removeToast(toast.id)}
+                className="p-1 hover:bg-white/20 rounded-md transition-colors cursor-pointer"
+                aria-label="Fechar notificação"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </ClubDataContext.Provider>
+  );
+};
+
+export const useClubData = () => {
+  const context = useContext(ClubDataContext);
+  if (!context) {
+    throw new Error('useClubData must be used within a ClubDataProvider');
+  }
+  return context;
+};
