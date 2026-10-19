@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { useClubData } from '../context/ClubDataContext.tsx';
 import { NewsArticle } from '../types/index.ts';
+import { sortNewsByDate } from '../utils/newsSort.ts';
 
 interface UltimasNoticiasProps {
   onViewAllNews: () => void;
@@ -27,8 +28,9 @@ export const UltimasNoticias: React.FC<UltimasNoticiasProps> = ({
   const { newsArticles } = useClubData();
   const [selectedArticle, setSelectedArticle] = useState<NewsArticle | null>(null);
 
-  const featuredArticle = newsArticles[0];
-  const sideArticles = newsArticles.slice(1, 4);
+  const sortedArticles = sortNewsByDate(newsArticles);
+  const featuredArticle = sortedArticles[0];
+  const sideArticles = sortedArticles.slice(1, 4);
 
   if (!featuredArticle) return null;
 
@@ -363,7 +365,7 @@ export const UltimasNoticias: React.FC<UltimasNoticiasProps> = ({
               )}
 
               <div className="pt-6 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500">
-                <span>Por {selectedArticle.author}</span>
+                <span>{selectedArticle.author ? `Por ${selectedArticle.author}` : ''}</span>
                 <button
                   type="button"
                   onClick={() => setSelectedArticle(null)}

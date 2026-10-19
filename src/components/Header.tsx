@@ -7,6 +7,8 @@ import {
   ArrowUpRight,
 } from 'lucide-react';
 
+import { useClubData } from '../context/ClubDataContext.tsx';
+
 interface HeaderProps {
   onOpenSearch: () => void;
   onOpenInscricoes: () => void;
@@ -33,6 +35,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenAdmin,
   activePageId = 'home',
 }) => {
+  const { clubInfo } = useClubData();
   const [isScrolled, setIsScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -217,9 +220,9 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
 
             <div className="pt-6 border-t border-sky-900/60 text-xs text-sky-300/80 space-y-1">
-              <p className="font-semibold text-white">Associação Esportiva Vitalizar</p>
-              <p>Rio Marinho · Cariacica/ES</p>
-              <p>(27) 9774-0773 · (27) 9297-9056</p>
+              <p className="font-semibold text-white">{clubInfo.fullName}</p>
+              <p>{clubInfo.municipality}</p>
+              <p>{clubInfo.phones.join(' · ')}</p>
             </div>
           </div>
         </div>

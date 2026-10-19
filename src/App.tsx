@@ -166,6 +166,7 @@ function VitalizarMainApp() {
       <main className="flex-1">
         {activeSubpage ? (
           <SubpageView
+            key={`${activeSubpage}-${activeSubTab ?? ''}`}
             pageId={activeSubpage}
             subId={activeSubTab}
             onBack={() => setActiveSubpage(null)}

@@ -72,6 +72,8 @@ import {
   logoutFirebaseAuth,
   logoutFirebaseAdmin,
 } from '../services/firebaseService.ts';
+import { withSpotsStatus } from '../utils/eventFilter.ts';
+import { MODALITY_NAMES } from '../utils/feeCalculator.ts';
 import type {
   NewsArticle,
   VitalizarEvent,
@@ -87,6 +89,32 @@ import type {
 
 interface AdminPanelProps {
   onClose: () => void;
+}
+
+/**
+ * Rascunho de edição que acompanha os dados publicados enquanto o admin não mexeu nele.
+ * Assim, inscrições e mensagens recebidas pelo site com o painel aberto aparecem no painel
+ * e não são sobrescritas ao salvar.
+ */
+function useSyncedDraft<T>(source: T) {
+  const [draft, setDraft] = useState<T>(source);
+  const baseRef = React.useRef(source);
+  useEffect(() => {
+    if (baseRef.current === source) return;
+    const previousBase = baseRef.current;
+    baseRef.current = source;
+    setDraft((current) =>
+      current === previousBase || JSON.stringify(current) === JSON.stringify(previousBase)
+        ? source
+        : current
+    );
+  }, [source]);
+  return [draft, setDraft] as const;
+}
+
+/** Só envia ao salvar as seções que realmente mudaram em relação ao que está publicado. */
+function changedOrUndefined<T>(next: T, published: T): T | undefined {
+  return JSON.stringify(next) !== JSON.stringify(published) ? next : undefined;
 }
 
 const DEFAULT_ADMIN_CREDS: AdminCredentials = {
@@ -455,6 +483,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
     clearAuditLogs,
     resetAllToDefaults,
     exportDatabaseJson,
+    buildBackupJson,
     importDatabaseJson,
     saveAdminChanges,
     showToast,
@@ -485,16 +514,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
   });
 
   // Staged / Draft States (Only persisted when pressing Save)
-  const [draftClubInfo, setDraftClubInfo] = useState<typeof clubInfo>(() => clubInfo);
-  const [draftSiteSettings, setDraftSiteSettings] = useState<SiteSettings>(() => siteSettings);
-  const [draftNews, setDraftNews] = useState<NewsArticle[]>(() => newsArticles);
-  const [draftSponsors, setDraftSponsors] = useState<Sponsor[]>(() => sponsors);
-  const [draftEvents, setDraftEvents] = useState<VitalizarEvent[]>(() => events);
-  const [draftProjects, setDraftProjects] = useState<VitalizarProject[]>(() => projects);
-  const [draftAlbums, setDraftAlbums] = useState<PastEventPhoto[]>(() => galleryAlbums);
-  const [draftDocs, setDraftDocs] = useState<TransparencyDocument[]>(() => transparencyDocs);
-  const [draftRsvps, setDraftRsvps] = useState(() => rsvps);
-  const [draftMessages, setDraftMessages] = useState(() => contactMessages);
+  const [draftClubInfo, setDraftClubInfo] = useSyncedDraft<typeof clubInfo>(clubInfo);
+  const [draftSiteSettings, setDraftSiteSettings] = useSyncedDraft<SiteSettings>(siteSettings);
+  const [draftNews, setDraftNews] = useSyncedDraft<NewsArticle[]>(newsArticles);
+  const [draftSponsors, setDraftSponsors] = useSyncedDraft<Sponsor[]>(sponsors);
+  const [draftEvents, setDraftEvents] = useSyncedDraft<VitalizarEvent[]>(events);
+  const [draftProjects, setDraftProjects] = useSyncedDraft<VitalizarProject[]>(projects);
+  const [draftAlbums, setDraftAlbums] = useSyncedDraft<PastEventPhoto[]>(galleryAlbums);
+  const [draftDocs, setDraftDocs] = useSyncedDraft<TransparencyDocument[]>(transparencyDocs);
+  const [draftRsvps, setDraftRsvps] = useSyncedDraft(rsvps);
+  const [draftMessages, setDraftMessages] = useSyncedDraft(contactMessages);
   const [draftCreds, setDraftCreds] = useState<AdminCredentials>(() => creds);
   const [unsavedClosePromptOpen, setUnsavedClosePromptOpen] = useState(false);
   const [firebaseUser, setFirebaseUser] = useState(auth.currentUser);
@@ -812,6 +841,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
         showToast('Informe o título da atividade antes de salvar.', 'error');
         return false;
       }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(editingEvent.date)) {
+        showToast('Informe a data da atividade antes de salvar.', 'error');
+        return false;
+      }
       const mergedHighlights = newHighlightText.trim()
         ? [...(editingEvent.scheduleHighlights || []), newHighlightText.trim()]
         : editingEvent.scheduleHighlights || [];
@@ -822,6 +855,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
       const finalEvent: VitalizarEvent = {
         ...editingEvent,
         id: isCreatingEvent || !editingEvent.id ? `evento-${Date.now()}` : editingEvent.id,
+        ...parseEventIsoDate(editingEvent.date),
+        availableSpots: Math.min(editingEvent.availableSpots, editingEvent.capacity),
         scheduleHighlights: mergedHighlights,
         prerequisites: mergedPrereqs,
       };
@@ -829,6 +864,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
         nextEvents = [finalEvent, ...nextEvents];
       } else {
         nextEvents = nextEvents.map((ev) => (ev.id === finalEvent.id ? finalEvent : ev));
+        // Mantém o título exibido nas inscrições sincronizado com o evento
+        nextRsvps = nextRsvps.map((r) =>
+          r.eventId === finalEvent.id ? { ...r, eventTitle: finalEvent.title } : r
+        );
       }
       setDraftEvents(nextEvents);
       setNewHighlightText('');
@@ -873,9 +912,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
           ]
         : editingAlbum.albumPhotos;
 
+      if (!editingAlbum.coverUrl && mergedPhotos.length === 0) {
+        showToast('Adicione ao menos uma foto ou uma imagem de capa ao álbum.', 'error');
+        return false;
+      }
       const finalAlbum: PastEventPhoto = {
         ...editingAlbum,
         id: isCreatingAlbum || !editingAlbum.id ? `album-${Date.now()}` : editingAlbum.id,
+        coverUrl: editingAlbum.coverUrl || mergedPhotos[0]?.url || '',
         albumPhotos:
           mergedPhotos.length > 0
             ? mergedPhotos
@@ -924,6 +968,35 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
         showToast('Preencha o nome e o telefone do participante.', 'error');
         return false;
       }
+      // Devolve as vagas da versão anterior (se houver) e reserva as da nova, mesmo se o evento mudou
+      const previousRsvp =
+        isCreatingRsvp || !editingRsvpItem.id
+          ? undefined
+          : nextRsvps.find((item) => item.id === editingRsvpItem.id);
+      const targetEvent = nextEvents.find((ev) => ev.id === editingRsvpItem.eventId);
+      if (targetEvent) {
+        const freeSpots =
+          targetEvent.availableSpots +
+          (previousRsvp?.eventId === targetEvent.id ? previousRsvp.spots : 0);
+        if (editingRsvpItem.spots > freeSpots) {
+          showToast(`Restam apenas ${freeSpots} vaga(s) em "${targetEvent.title}".`, 'error');
+          return false;
+        }
+      }
+      const applySpots = (eventId: string, delta: number) => {
+        nextEvents = nextEvents.map((ev) =>
+          ev.id === eventId
+            ? withSpotsStatus(
+                {
+                  ...ev,
+                  availableSpots: Math.max(0, Math.min(ev.capacity, ev.availableSpots + delta)),
+                },
+                ev.availableSpots
+              )
+            : ev
+        );
+      };
+
       if (isCreatingRsvp || !editingRsvpItem.id) {
         const newRsvp = {
           ...editingRsvpItem,
@@ -934,27 +1007,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
             `VIT-2026-${Math.floor(1000 + Math.random() * 9000)}`,
         };
         nextRsvps = [newRsvp, ...nextRsvps];
-        nextEvents = nextEvents.map((ev) =>
-          ev.id === newRsvp.eventId
-            ? { ...ev, availableSpots: Math.max(0, ev.availableSpots - newRsvp.spots) }
-            : ev
-        );
+        applySpots(newRsvp.eventId, -newRsvp.spots);
       } else {
-        const previousRsvp = nextRsvps.find((item) => item.id === editingRsvpItem.id);
         nextRsvps = nextRsvps.map((item) =>
           item.id === editingRsvpItem.id ? editingRsvpItem : item
         );
-        if (previousRsvp && previousRsvp.spots !== editingRsvpItem.spots) {
-          const diff = editingRsvpItem.spots - previousRsvp.spots;
-          nextEvents = nextEvents.map((ev) =>
-            ev.id === editingRsvpItem.eventId
-              ? {
-                  ...ev,
-                  availableSpots: Math.max(0, Math.min(ev.capacity, ev.availableSpots - diff)),
-                }
-              : ev
-          );
-        }
+        if (previousRsvp) applySpots(previousRsvp.eventId, previousRsvp.spots);
+        applySpots(editingRsvpItem.eventId, -editingRsvpItem.spots);
       }
       setDraftRsvps(nextRsvps);
       setDraftEvents(nextEvents);
@@ -982,17 +1041,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
     }
 
     // 8. Persist all data to ClubDataContext, localStorage and Firestore
+    const cleanClubInfo = {
+      ...draftClubInfo,
+      phones: draftClubInfo.phones.map((p) => p.trim()).filter(Boolean),
+    };
+    setDraftClubInfo(cleanClubInfo);
     const savedOk = saveAdminChanges({
-      clubInfo: draftClubInfo,
-      siteSettings: draftSiteSettings,
-      newsArticles: nextNews,
-      sponsors: nextSponsors,
-      events: nextEvents,
-      projects: nextProjects,
-      galleryAlbums: nextAlbums,
-      transparencyDocs: nextDocs,
-      rsvps: nextRsvps,
-      contactMessages: draftMessages,
+      clubInfo: changedOrUndefined(cleanClubInfo, clubInfo),
+      siteSettings: changedOrUndefined(draftSiteSettings, siteSettings),
+      newsArticles: changedOrUndefined(nextNews, newsArticles),
+      sponsors: changedOrUndefined(nextSponsors, sponsors),
+      events: changedOrUndefined(nextEvents, events),
+      projects: changedOrUndefined(nextProjects, projects),
+      galleryAlbums: changedOrUndefined(nextAlbums, galleryAlbums),
+      transparencyDocs: changedOrUndefined(nextDocs, transparencyDocs),
+      rsvps: changedOrUndefined(nextRsvps, rsvps),
+      contactMessages: changedOrUndefined(draftMessages, contactMessages),
       toastMessage: customToastMessage || 'Alterações salvas no banco de dados e publicadas!',
     });
 
@@ -1182,12 +1246,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
         });
       }
 
-      const updatedAlbumPhotos = [...editingAlbum.albumPhotos, ...uploadedPhotos];
-      setEditingAlbum({
-        ...editingAlbum,
-        coverUrl: editingAlbum.coverUrl || uploadedPhotos[0]?.url || '',
-        albumPhotos: updatedAlbumPhotos,
-      });
+      // Atualização funcional: preserva o que foi digitado durante o upload
+      setEditingAlbum((prev) =>
+        prev
+          ? {
+              ...prev,
+              coverUrl: prev.coverUrl || uploadedPhotos[0]?.url || '',
+              albumPhotos: [...prev.albumPhotos, ...uploadedPhotos],
+            }
+          : prev
+      );
     } catch (err: any) {
       showToast(err?.message || 'Erro ao processar fotos.', 'error');
     } finally {
@@ -1267,7 +1335,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                     required
                     value={loginEmail}
                     onChange={(e) => setLoginEmail(e.target.value)}
-                    placeholder="admin@vitalizar.org.br"
+                    placeholder="e-mail"
                     className="w-full text-xs p-3 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none"
                   />
                 </div>
@@ -2011,7 +2079,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                       onChange={(e) =>
                         setDraftClubInfo({
                           ...draftClubInfo,
-                          phones: e.target.value.split(',').map((p) => p.trim()),
+                          // Não remove espaços ao digitar (limpeza final ocorre ao salvar)
+                          phones: e.target.value.split(',').map((p) => p.trimStart()),
                         })
                       }
                       className="w-full text-xs p-2.5 bg-slate-50 border border-slate-300 rounded-lg"
@@ -4315,12 +4384,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                             <input
                               type="number"
                               value={editingEvent.capacity}
-                              onChange={(e) =>
+                              onChange={(e) => {
+                                // Mantém as vagas já reservadas: ajusta as disponíveis junto com a capacidade
+                                const capacity = Math.max(1, Number(e.target.value));
+                                const booked = Math.max(0, editingEvent.capacity - editingEvent.availableSpots);
                                 setEditingEvent({
                                   ...editingEvent,
-                                  capacity: Math.max(1, Number(e.target.value)),
-                                })
-                              }
+                                  capacity,
+                                  availableSpots: Math.max(0, capacity - booked),
+                                });
+                              }}
                               className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg"
                             />
                           </div>
@@ -4332,10 +4405,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                             <input
                               type="number"
                               value={editingEvent.availableSpots}
+                              max={editingEvent.capacity}
                               onChange={(e) =>
                                 setEditingEvent({
                                   ...editingEvent,
-                                  availableSpots: Math.max(0, Number(e.target.value)),
+                                  availableSpots: Math.min(
+                                    editingEvent.capacity,
+                                    Math.max(0, Number(e.target.value))
+                                  ),
                                 })
                               }
                               className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg"
@@ -4634,6 +4711,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                   ...ev,
                                   id: '',
                                   title: `${ev.title} (Cópia)`,
+                                  availableSpots: ev.capacity,
+                                  status: 'inscricoes_abertas',
                                   attachments: [...(ev.attachments || [])],
                                   scheduleHighlights: [...(ev.scheduleHighlights || [])],
                                   prerequisites: [...(ev.prerequisites || [])],
@@ -5045,8 +5124,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                       category: 'Festivais Esportivos',
                       date: 'Outubro 2026',
                       location: 'Polo Rio Marinho · Cariacica/ES',
-                      coverUrl:
-                        'https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=1000&q=80',
+                      // Capa vazia: a primeira foto enviada vira a capa automaticamente
+                      coverUrl: '',
                       caption: '',
                       albumPhotos: [],
                     });
@@ -5960,16 +6039,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                             onChange={(e) => {
                               const val = e.target.value;
                               const foundEv = draftEvents.find((ev) => ev.id === val);
+                              const modalityName = MODALITY_NAMES[val.replace(/^modalidade-/, '')];
                               setEditingRsvpItem({
                                 ...editingRsvpItem,
                                 eventId: val,
                                 eventTitle: foundEv
                                   ? foundEv.title
-                                  : val === 'modalidade-iniciacao_esportiva'
-                                  ? 'Iniciação Esportiva (Futsal, Vôlei) — Polo Rio Marinho'
-                                  : val === 'modalidade-condicionamento_fisico'
-                                  ? 'Condicionamento Físico & Saúde — Polo Rio Marinho'
-                                  : 'Projeto Vida Ativa (Pessoas Idosas) — Polo Rio Marinho',
+                                  : `${modalityName || val} — Polo Rio Marinho`,
                               });
                             }}
                             className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg font-medium"
@@ -5982,15 +6058,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                               ))}
                             </optgroup>
                             <optgroup label="Escolinhas e Modalidades Permanentes">
-                              <option value="modalidade-iniciacao_esportiva">
-                                Iniciação Esportiva (Futsal, Vôlei) — Polo Rio Marinho
-                              </option>
-                              <option value="modalidade-condicionamento_fisico">
-                                Condicionamento Físico & Saúde — Polo Rio Marinho
-                              </option>
-                              <option value="modalidade-vida_ativa_idosos">
-                                Projeto Vida Ativa (Pessoas Idosas) — Polo Rio Marinho
-                              </option>
+                              {Object.entries(MODALITY_NAMES).map(([key, name]) => (
+                                <option key={key} value={`modalidade-${key}`}>
+                                  {name}
+                                </option>
+                              ))}
                             </optgroup>
                           </select>
                         </div>
@@ -6166,13 +6238,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                     setDraftEvents((prev) =>
                                       prev.map((ev) =>
                                         ev.id === r.eventId
-                                          ? {
-                                              ...ev,
-                                              availableSpots: Math.min(
-                                                ev.capacity,
-                                                ev.availableSpots + r.spots
-                                              ),
-                                            }
+                                          ? withSpotsStatus(
+                                              {
+                                                ...ev,
+                                                availableSpots: Math.min(
+                                                  ev.capacity,
+                                                  ev.availableSpots + r.spots
+                                                ),
+                                              },
+                                              ev.availableSpots
+                                            )
                                           : ev
                                       )
                                     );
@@ -6541,7 +6616,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
           {/* TAB 11: BACKUP & RESTAURAÇÃO (WITH STORAGE METER) */}
           {/* ========================================================================= */}
           {activeTab === 'backup' && (() => {
-            const estimatedBytes = new Blob([exportDatabaseJson()]).size;
+            const estimatedBytes = new Blob([buildBackupJson()]).size;
             const maxStorageBytes = 5 * 1024 * 1024; // ~5MB browser localStorage quota
             const usagePercent = Math.min(100, Math.round((estimatedBytes / maxStorageBytes) * 100));
 

@@ -19,6 +19,9 @@ interface FooterProps {
   onOpenAdmin?: () => void;
 }
 
+/** Garante link absoluto para redes sociais digitadas sem "https://" no painel. */
+const toExternalUrl = (url: string) => (/^https?:\/\//i.test(url) ? url : `https://${url.trim()}`);
+
 export const Footer: React.FC<FooterProps> = ({
   onOpenContact,
   onOpenPrivacy,
@@ -59,33 +62,39 @@ export const Footer: React.FC<FooterProps> = ({
 
             {/* Social Links */}
             <div className="flex items-center gap-2.5 pt-1">
-              <a
-                href={clubInfo.socials.facebook}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-9 h-9 rounded-lg bg-slate-800 hover:bg-[#0284c7] flex items-center justify-center transition-colors text-slate-300 hover:text-white"
-                aria-label="Facebook Vitalizar"
-              >
-                <Facebook className="w-4 h-4" />
-              </a>
-              <a
-                href={clubInfo.socials.instagram}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-9 h-9 rounded-lg bg-slate-800 hover:bg-[#0284c7] flex items-center justify-center transition-colors text-slate-300 hover:text-white"
-                aria-label="Instagram Vitalizar"
-              >
-                <Instagram className="w-4 h-4" />
-              </a>
-              <a
-                href={clubInfo.socials.youtube}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-9 h-9 rounded-lg bg-slate-800 hover:bg-[#0284c7] flex items-center justify-center transition-colors text-slate-300 hover:text-white"
-                aria-label="YouTube Vitalizar"
-              >
-                <Youtube className="w-4 h-4" />
-              </a>
+              {clubInfo.socials.facebook && (
+                <a
+                  href={toExternalUrl(clubInfo.socials.facebook)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-9 h-9 rounded-lg bg-slate-800 hover:bg-[#0284c7] flex items-center justify-center transition-colors text-slate-300 hover:text-white"
+                  aria-label="Facebook Vitalizar"
+                >
+                  <Facebook className="w-4 h-4" />
+                </a>
+              )}
+              {clubInfo.socials.instagram && (
+                <a
+                  href={toExternalUrl(clubInfo.socials.instagram)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-9 h-9 rounded-lg bg-slate-800 hover:bg-[#0284c7] flex items-center justify-center transition-colors text-slate-300 hover:text-white"
+                  aria-label="Instagram Vitalizar"
+                >
+                  <Instagram className="w-4 h-4" />
+                </a>
+              )}
+              {clubInfo.socials.youtube && (
+                <a
+                  href={toExternalUrl(clubInfo.socials.youtube)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-9 h-9 rounded-lg bg-slate-800 hover:bg-[#0284c7] flex items-center justify-center transition-colors text-slate-300 hover:text-white"
+                  aria-label="YouTube Vitalizar"
+                >
+                  <Youtube className="w-4 h-4" />
+                </a>
+              )}
               <button
                 type="button"
                 onClick={onOpenContact}
