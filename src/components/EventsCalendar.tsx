@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { VitalizarEvent, EventCategory } from '../types/index.ts';
 import { useClubData } from '../context/ClubDataContext.tsx';
+import { useDialog } from '../hooks/useDialog.ts';
 import {
   filterEvents,
   sortEventsByDate,
@@ -52,6 +53,12 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
   const selectedEvent = selectedEventSnapshot
     ? events.find((ev) => ev.id === selectedEventSnapshot.id) ?? selectedEventSnapshot
     : null;
+
+  const dialogRef = useDialog(selectedEvent !== null, () => setSelectedEvent(null));
+  const dialogTitleId = React.useId();
+  const nameInputId = React.useId();
+  const phoneInputId = React.useId();
+  const spotsSelectId = React.useId();
 
   useEffect(() => {
     if (initialCategory) {
@@ -111,11 +118,20 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
 
   const handleCopyLink = () => {
     if (!selectedEvent) return;
-    navigator.clipboard.writeText(
-      `${window.location.origin}/#eventos-${selectedEvent.id}`
-    );
-    setCopiedLink(true);
-    setTimeout(() => setCopiedLink(false), 2500);
+    const url = `${window.location.origin}/#eventos-${selectedEvent.id}`;
+    const onCopyFailed = () => showToast('Não foi possível copiar o link.');
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard indisponível');
+      navigator.clipboard
+        .writeText(url)
+        .then(() => {
+          setCopiedLink(true);
+          setTimeout(() => setCopiedLink(false), 2500);
+        })
+        .catch(onCopyFailed);
+    } catch {
+      onCopyFailed();
+    }
   };
 
   const getClosedLabel = (event: VitalizarEvent) => {
@@ -184,25 +200,27 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
               <button
                 type="button"
                 onClick={() => setViewMode('grid')}
+                aria-pressed={viewMode === 'grid'}
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all inline-flex items-center gap-1.5 cursor-pointer ${
                   viewMode === 'grid'
                     ? 'bg-[#061a38] text-white shadow-2xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                <LayoutGrid className="w-3.5 h-3.5" />
+                <LayoutGrid className="w-3.5 h-3.5" aria-hidden="true" />
                 <span>Cards</span>
               </button>
               <button
                 type="button"
                 onClick={() => setViewMode('agenda')}
+                aria-pressed={viewMode === 'agenda'}
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all inline-flex items-center gap-1.5 cursor-pointer ${
                   viewMode === 'agenda'
                     ? 'bg-[#061a38] text-white shadow-2xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                <List className="w-3.5 h-3.5" />
+                <List className="w-3.5 h-3.5" aria-hidden="true" />
                 <span>Lista</span>
               </button>
             </div>
@@ -219,7 +237,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
         >
           <div
             className="inline-flex flex-wrap items-center gap-1.5"
-            role="tablist"
+            role="group"
             aria-label="Filtrar eventos por categoria"
           >
             {categoryTabs.map((tab) => {
@@ -228,8 +246,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                 <button
                   key={tab.id}
                   type="button"
-                  role="tab"
-                  aria-selected={isActive}
+                  aria-pressed={isActive}
                   onClick={() => setSelectedCategory(tab.id as EventCategory | 'all')}
                   className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                     isActive
@@ -244,12 +261,14 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
           </div>
 
           <div className="relative w-full md:w-72">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" aria-hidden="true" />
             <input
               type="text"
+              name="busca-eventos"
+              autoComplete="off"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Buscar por modalidade ou local..."
+              placeholder="Buscar por modalidade ou local…"
               aria-label="Buscar evento por nome ou local"
               className="w-full text-xs pl-9 pr-8 py-2.5 bg-white/80 backdrop-blur-md border border-slate-200/80 rounded-xl focus:ring-2 focus:ring-sky-600 focus:outline-none placeholder-slate-400 text-slate-800"
             />
@@ -260,7 +279,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                 className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
                 aria-label="Limpar busca"
               >
-                <X className="w-3.5 h-3.5" />
+                <X className="w-3.5 h-3.5" aria-hidden="true" />
               </button>
             )}
           </div>
@@ -269,7 +288,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
         {/* Events Display */}
         {filteredEvents.length === 0 ? (
           <div className="py-14 text-center bg-white/70 backdrop-blur-xl border border-white/90 rounded-2xl space-y-3 shadow-sm">
-            <CalendarIcon className="w-8 h-8 text-slate-300 mx-auto" />
+            <CalendarIcon className="w-8 h-8 text-slate-300 mx-auto" aria-hidden="true" />
             <h3 className="text-sm font-bold text-slate-800">
               Nenhum evento encontrado para o filtro selecionado
             </h3>
@@ -357,6 +376,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                             }`}
                           >
                             <Clock
+                              aria-hidden="true"
                               className={`w-3.5 h-3.5 ${
                                 isFeatured ? 'text-sky-300' : 'text-slate-400'
                               }`}
@@ -402,6 +422,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                     >
                       <div className="flex items-center gap-1.5">
                         <MapPin
+                          aria-hidden="true"
                           className={`w-3.5 h-3.5 shrink-0 ${
                             isFeatured ? 'text-[#38bdf8]' : 'text-[#0284c7]'
                           }`}
@@ -413,7 +434,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                           isFeatured ? 'text-sky-200/75' : 'text-slate-500'
                         }`}
                       >
-                        <Users className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                        <Users className="w-3.5 h-3.5 text-sky-400 shrink-0" aria-hidden="true" />
                         <span className="truncate">{event.targetAudience}</span>
                       </div>
                     </div>
@@ -454,7 +475,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                       }`}
                     >
                       <span>{isFull ? 'Consultar detalhes' : 'Confirmar presença gratuita'}</span>
-                      <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
+                      <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" aria-hidden="true" />
                     </div>
                   </div>
                 </motion.button>
@@ -511,7 +532,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                     </span>
                     <span className="px-4 py-2 bg-sky-50/90 group-hover:bg-[#0284c7] text-[#0284c7] group-hover:text-white text-xs font-semibold rounded-xl transition-colors inline-flex items-center gap-1">
                       <span>Participar</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
+                      <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
                     </span>
                   </div>
                 </button>
@@ -564,7 +585,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                 className="px-6 py-3.5 bg-[#0284c7]/90 hover:bg-[#0ea5e9] backdrop-blur-md border border-sky-300/40 text-white font-semibold text-xs sm:text-sm rounded-xl shadow-lg transition-all cursor-pointer whitespace-nowrap shrink-0 inline-flex items-center gap-2"
               >
                 <span>Fazer Pré-Inscrição Gratuita</span>
-                <ArrowRight className="w-4 h-4" />
+                <ArrowRight className="w-4 h-4" aria-hidden="true" />
               </button>
             )}
           </div>
@@ -575,11 +596,14 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
       {selectedEvent && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/65 backdrop-blur-md"
-          role="dialog"
-          aria-modal="true"
-          aria-label={selectedEvent.title}
         >
-          <div className="bg-white/90 backdrop-blur-2xl rounded-2xl max-w-xl w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-white/80 text-slate-800">
+          <div
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={dialogTitleId}
+            className="bg-white/90 backdrop-blur-2xl rounded-2xl max-w-xl w-full max-h-[90vh] overflow-y-auto overscroll-contain shadow-2xl border border-white/80 text-slate-800"
+          >
             <div className="sticky top-0 z-10 bg-[#061a38]/95 backdrop-blur-xl text-white px-6 py-4 flex items-center justify-between border-b border-sky-900/80">
               <div className="flex items-center gap-2 text-xs text-sky-200 font-medium">
                 <span className="text-[#38bdf8] font-semibold">
@@ -593,15 +617,18 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                 type="button"
                 onClick={closeEventDetails}
                 className="p-1.5 text-sky-200 hover:text-white rounded-lg hover:bg-white/10 transition-colors cursor-pointer"
-                aria-label="Fechar detalhes do evento"
+                aria-label="Fechar"
               >
-                <X className="w-5 h-5" />
+                <X className="w-5 h-5" aria-hidden="true" />
               </button>
             </div>
 
             <div className="p-6 space-y-6">
               <div>
-                <h2 className="font-display text-xl sm:text-2xl font-extrabold text-slate-900 leading-tight">
+                <h2
+                  id={dialogTitleId}
+                  className="font-display text-xl sm:text-2xl font-extrabold text-slate-900 leading-tight"
+                >
                   {selectedEvent.title}
                 </h2>
                 <p className="mt-2 text-sm text-slate-600 leading-relaxed">
@@ -611,7 +638,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 bg-white/75 backdrop-blur-md rounded-xl border border-slate-200/80 text-xs">
                 <div className="flex items-start gap-2.5">
-                  <Clock className="w-4 h-4 text-[#0284c7] shrink-0 mt-0.5" />
+                  <Clock className="w-4 h-4 text-[#0284c7] shrink-0 mt-0.5" aria-hidden="true" />
                   <div>
                     <span className="font-semibold text-slate-900 block">Horário</span>
                     <span className="text-slate-600">{selectedEvent.time}</span>
@@ -619,7 +646,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                 </div>
 
                 <div className="flex items-start gap-2.5">
-                  <Users className="w-4 h-4 text-[#0284c7] shrink-0 mt-0.5" />
+                  <Users className="w-4 h-4 text-[#0284c7] shrink-0 mt-0.5" aria-hidden="true" />
                   <div>
                     <span className="font-semibold text-slate-900 block">Público-Alvo</span>
                     <span className="text-slate-600">{selectedEvent.targetAudience}</span>
@@ -628,7 +655,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
 
                 <div className="sm:col-span-2 flex items-start justify-between gap-2.5 pt-2 border-t border-slate-200/80">
                   <div className="flex items-start gap-2.5">
-                    <MapPin className="w-4 h-4 text-[#0284c7] shrink-0 mt-0.5" />
+                    <MapPin className="w-4 h-4 text-[#0284c7] shrink-0 mt-0.5" aria-hidden="true" />
                     <div>
                       <span className="font-semibold text-slate-900 block">
                         {selectedEvent.location}
@@ -645,7 +672,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                     className="inline-flex items-center gap-1 text-xs font-semibold text-[#0284c7] hover:underline shrink-0"
                   >
                     <span>Mapa</span>
-                    <ExternalLink className="w-3 h-3" />
+                    <ExternalLink className="w-3 h-3" aria-hidden="true" />
                   </a>
                 </div>
               </div>
@@ -686,7 +713,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
               {selectedEvent.attachments && selectedEvent.attachments.length > 0 && (
                 <div className="p-4 bg-white/80 rounded-xl border border-slate-200/80 space-y-2.5">
                   <span className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
-                    <Paperclip className="w-3.5 h-3.5 text-[#0284c7]" />
+                    <Paperclip className="w-3.5 h-3.5 text-[#0284c7]" aria-hidden="true" />
                     <span>Materiais e Anexos do Evento ({selectedEvent.attachments.length})</span>
                   </span>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -700,7 +727,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                         className="p-2.5 bg-slate-50 hover:bg-sky-50 border border-slate-200 hover:border-sky-300 rounded-lg flex items-center justify-between gap-2 transition-colors group"
                       >
                         <div className="flex items-center gap-2 min-w-0">
-                          <FileText className="w-4 h-4 text-[#0284c7] shrink-0" />
+                          <FileText className="w-4 h-4 text-[#0284c7] shrink-0" aria-hidden="true" />
                           <div className="min-w-0">
                             <span className="text-xs font-semibold text-slate-800 group-hover:text-[#0284c7] truncate block">
                               {att.name}
@@ -710,7 +737,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                             </span>
                           </div>
                         </div>
-                        <Download className="w-3.5 h-3.5 text-slate-400 group-hover:text-[#0284c7] shrink-0" />
+                        <Download className="w-3.5 h-3.5 text-slate-400 group-hover:text-[#0284c7] shrink-0" aria-hidden="true" />
                       </a>
                     ))}
                   </div>
@@ -736,7 +763,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
 
                 {rsvpConfirmed ? (
                   <div className="py-4 text-center space-y-2">
-                    <CheckCircle2 className="w-8 h-8 text-[#0284c7] mx-auto" />
+                    <CheckCircle2 className="w-8 h-8 text-[#0284c7] mx-auto" aria-hidden="true" />
                     <h4 className="text-sm font-bold text-slate-900">
                       Presença Confirmada!
                     </h4>
@@ -750,7 +777,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                   </div>
                 ) : isEventClosed(selectedEvent) ? (
                   <div className="p-4 bg-white rounded-lg text-center text-xs text-slate-600 space-y-1 border border-slate-200">
-                    <AlertCircle className="w-5 h-5 text-slate-400 mx-auto" />
+                    <AlertCircle className="w-5 h-5 text-slate-400 mx-auto" aria-hidden="true" />
                     <p className="font-semibold text-slate-800">
                       {isEventPast(selectedEvent)
                         ? 'Esta atividade já foi realizada.'
@@ -763,10 +790,13 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                   <form onSubmit={handleConfirmRsvp} className="space-y-3">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        <label htmlFor={nameInputId} className="block text-xs font-semibold text-slate-700 mb-1">
                           Nome Completo *
                         </label>
                         <input
+                          id={nameInputId}
+                          name="name"
+                          autoComplete="name"
                           type="text"
                           required
                           value={participantName}
@@ -777,10 +807,14 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                       </div>
 
                       <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        <label htmlFor={phoneInputId} className="block text-xs font-semibold text-slate-700 mb-1">
                           Telefone / WhatsApp *
                         </label>
                         <input
+                          id={phoneInputId}
+                          name="tel"
+                          autoComplete="tel"
+                          inputMode="tel"
                           type="tel"
                           required
                           value={participantPhone}
@@ -793,8 +827,10 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
 
                     <div className="flex items-center justify-between pt-2">
                       <div className="flex items-center gap-2">
-                        <label className="text-xs font-semibold text-slate-700">Vagas:</label>
+                        <label htmlFor={spotsSelectId} className="text-xs font-semibold text-slate-700">Vagas:</label>
                         <select
+                          id={spotsSelectId}
+                          name="spots"
                           value={rsvpSpots}
                           onChange={(e) => setRsvpSpots(Number(e.target.value))}
                           className="text-xs p-1.5 bg-white border border-slate-300 rounded-lg font-semibold text-slate-800"
@@ -828,7 +864,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg transition-colors"
                   >
-                    <CalendarPlus className="w-3.5 h-3.5 text-[#0284c7]" />
+                    <CalendarPlus className="w-3.5 h-3.5 text-[#0284c7]" aria-hidden="true" />
                     <span>Google Agenda</span>
                   </a>
 
@@ -837,8 +873,8 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                     onClick={handleCopyLink}
                     className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg transition-colors cursor-pointer"
                   >
-                    <Share2 className="w-3.5 h-3.5 text-slate-500" />
-                    <span>{copiedLink ? 'Copiado!' : 'Compartilhar'}</span>
+                    <Share2 className="w-3.5 h-3.5 text-slate-500" aria-hidden="true" />
+                    <span aria-live="polite">{copiedLink ? 'Copiado!' : 'Compartilhar'}</span>
                   </button>
                 </div>
 

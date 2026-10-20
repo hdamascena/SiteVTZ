@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, lazy, Suspense } from 'react';
-import { motion } from 'motion/react';
+import { motion, MotionConfig } from 'motion/react';
 import { ClubDataProvider, useClubData } from './context/ClubDataContext.tsx';
 import { Header } from './components/Header.tsx';
 import { HeroCarousel } from './components/HeroCarousel.tsx';
@@ -141,12 +141,19 @@ function VitalizarMainApp() {
 
   return (
     <div className="min-h-screen flex flex-col bg-white text-slate-800">
+      <a
+        href="#conteudo"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[200] focus:px-4 focus:py-2 focus:bg-white focus:text-[#061a38] focus:font-bold focus:rounded-md focus:shadow-lg"
+      >
+        Pular para o conteúdo
+      </a>
+
       {/* Dynamic Institutional Announcement Bar (Configured in Admin Settings) */}
       {siteSettings.announcementBanner?.enabled && siteSettings.announcementBanner.text && (
         <div className="bg-[#0284c7] text-white px-4 py-2 text-xs font-medium border-b border-sky-400/30">
           <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2 text-center sm:text-left">
             <div className="flex items-center gap-2 justify-center sm:justify-start">
-              <Megaphone className="w-3.5 h-3.5 text-sky-200 shrink-0" />
+              <Megaphone className="w-3.5 h-3.5 text-sky-200 shrink-0" aria-hidden="true" />
               <span>{siteSettings.announcementBanner.text}</span>
             </div>
             {siteSettings.announcementBanner.linkLabel && (
@@ -175,7 +182,7 @@ function VitalizarMainApp() {
       />
 
       {/* Main Content */}
-      <main className="flex-1">
+      <main id="conteudo" tabIndex={-1} className="flex-1 focus:outline-none">
         {activeSubpage ? (
           <Suspense fallback={<div className="min-h-[60vh]" />}>
             <SubpageView
@@ -265,7 +272,7 @@ function VitalizarMainApp() {
         <button
           type="button"
           onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-          className="fixed bottom-6 right-20 z-30 p-3 bg-slate-900 hover:bg-[#0284c7] text-white rounded-full shadow-lg border border-slate-700 transition-all duration-200 cursor-pointer"
+          className="fixed bottom-6 right-20 z-30 p-3 bg-slate-900 hover:bg-[#0284c7] text-white rounded-full shadow-lg border border-slate-700 transition-colors duration-200 cursor-pointer"
           title="Voltar ao Topo"
           aria-label="Voltar ao Topo"
         >
@@ -308,7 +315,10 @@ function VitalizarMainApp() {
 export default function App() {
   return (
     <ClubDataProvider>
-      <VitalizarMainApp />
+      {/* Respeita "reduzir movimento" do sistema nas animações do motion */}
+      <MotionConfig reducedMotion="user">
+        <VitalizarMainApp />
+      </MotionConfig>
     </ClubDataProvider>
   );
 }

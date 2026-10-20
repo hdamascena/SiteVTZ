@@ -13,6 +13,7 @@ import {
 import { useClubData } from '../context/ClubDataContext.tsx';
 import { NewsArticle } from '../types/index.ts';
 import { sortNewsByDate } from '../utils/newsSort.ts';
+import { useDialog } from '../hooks/useDialog.ts';
 
 interface UltimasNoticiasProps {
   onViewAllNews: () => void;
@@ -27,6 +28,8 @@ export const UltimasNoticias: React.FC<UltimasNoticiasProps> = ({
 }) => {
   const { newsArticles } = useClubData();
   const [selectedArticle, setSelectedArticle] = useState<NewsArticle | null>(null);
+  const dialogRef = useDialog(selectedArticle !== null, () => setSelectedArticle(null));
+  const dialogTitleId = React.useId();
 
   const sortedArticles = sortNewsByDate(newsArticles);
   const featuredArticle = sortedArticles[0];
@@ -72,7 +75,7 @@ export const UltimasNoticias: React.FC<UltimasNoticiasProps> = ({
             className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-white/75 hover:bg-white backdrop-blur-md text-slate-800 border border-white/90 font-semibold text-xs rounded-xl shadow-xs transition-all cursor-pointer self-start sm:self-auto whitespace-nowrap shrink-0"
           >
             <span>Ver Todas as Notícias</span>
-            <ArrowRight className="w-3.5 h-3.5 text-[#0284c7]" />
+            <ArrowRight className="w-3.5 h-3.5 text-[#0284c7]" aria-hidden="true" />
           </button>
         </motion.div>
 
@@ -117,7 +120,7 @@ export const UltimasNoticias: React.FC<UltimasNoticiasProps> = ({
                   <div className="flex items-center gap-2">
                     {featuredArticle.attachments && featuredArticle.attachments.length > 0 && (
                       <span className="inline-flex items-center gap-1 text-sky-300 font-semibold">
-                        <Paperclip className="w-3 h-3" />
+                        <Paperclip className="w-3 h-3" aria-hidden="true" />
                         <span>{featuredArticle.attachments.length}</span>
                       </span>
                     )}
@@ -141,7 +144,7 @@ export const UltimasNoticias: React.FC<UltimasNoticiasProps> = ({
 
                 <div className="mt-6 pt-4 border-t border-slate-200/70 flex items-center justify-between text-xs font-semibold text-[#0284c7] w-full">
                   <span>Ler matéria completa</span>
-                  <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
+                  <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" aria-hidden="true" />
                 </div>
               </div>
             </button>
@@ -190,7 +193,7 @@ export const UltimasNoticias: React.FC<UltimasNoticiasProps> = ({
                         <>
                           <span aria-hidden="true">·</span>
                           <span className="inline-flex items-center gap-0.5 text-[#0284c7] font-semibold">
-                            <Paperclip className="w-3 h-3" />
+                            <Paperclip className="w-3 h-3" aria-hidden="true" />
                             {article.attachments.length}
                           </span>
                         </>
@@ -204,7 +207,7 @@ export const UltimasNoticias: React.FC<UltimasNoticiasProps> = ({
 
                   <span className="text-xs font-semibold text-slate-700 group-hover:text-[#0284c7] inline-flex items-center gap-1 mt-2">
                     <span>Ler matéria</span>
-                    <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" />
+                    <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
                   </span>
                 </div>
               </motion.button>
@@ -227,7 +230,7 @@ export const UltimasNoticias: React.FC<UltimasNoticiasProps> = ({
               className="group text-left bg-white/70 hover:bg-white/90 backdrop-blur-xl p-6 rounded-2xl border border-white/90 hover:border-sky-300/80 shadow-[0_8px_24px_rgb(15,23,42,0.05)] hover:shadow-[0_14px_32px_rgb(2,132,199,0.12)] transition-all flex items-start gap-4 cursor-pointer hover:-translate-y-0.5"
             >
               <div className="w-12 h-12 rounded-2xl bg-[#061a38] text-[#38bdf8] flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform shadow-md">
-                <MapPin className="w-5 h-5" />
+                <MapPin className="w-5 h-5" aria-hidden="true" />
               </div>
               <div className="space-y-1">
                 <h3 className="font-display text-base font-bold text-slate-900 group-hover:text-[#0284c7] transition-colors">
@@ -245,7 +248,7 @@ export const UltimasNoticias: React.FC<UltimasNoticiasProps> = ({
               className="group text-left bg-white/70 hover:bg-white/90 backdrop-blur-xl p-6 rounded-2xl border border-white/90 hover:border-sky-300/80 shadow-[0_8px_24px_rgb(15,23,42,0.05)] hover:shadow-[0_14px_32px_rgb(2,132,199,0.12)] transition-all flex items-start gap-4 cursor-pointer hover:-translate-y-0.5"
             >
               <div className="w-12 h-12 rounded-2xl bg-[#061a38] text-[#38bdf8] flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform shadow-md">
-                <ShieldCheck className="w-5 h-5" />
+                <ShieldCheck className="w-5 h-5" aria-hidden="true" />
               </div>
               <div className="space-y-1">
                 <h3 className="font-display text-base font-bold text-slate-900 group-hover:text-[#0284c7] transition-colors">
@@ -263,7 +266,7 @@ export const UltimasNoticias: React.FC<UltimasNoticiasProps> = ({
               className="group text-left bg-white/70 hover:bg-white/90 backdrop-blur-xl p-6 rounded-2xl border border-white/90 hover:border-sky-300/80 shadow-[0_8px_24px_rgb(15,23,42,0.05)] hover:shadow-[0_14px_32px_rgb(2,132,199,0.12)] transition-all flex items-start gap-4 cursor-pointer hover:-translate-y-0.5"
             >
               <div className="w-12 h-12 rounded-2xl bg-[#061a38] text-[#38bdf8] flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform shadow-md">
-                <MessageSquare className="w-5 h-5" />
+                <MessageSquare className="w-5 h-5" aria-hidden="true" />
               </div>
               <div className="space-y-1">
                 <h3 className="font-display text-base font-bold text-slate-900 group-hover:text-[#0284c7] transition-colors">
@@ -282,11 +285,14 @@ export const UltimasNoticias: React.FC<UltimasNoticiasProps> = ({
       {selectedArticle && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/65 backdrop-blur-md"
-          role="dialog"
-          aria-modal="true"
-          aria-label={selectedArticle.title}
         >
-          <div className="bg-white/90 backdrop-blur-2xl rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-white/80 text-slate-800">
+          <div
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={dialogTitleId}
+            className="bg-white/90 backdrop-blur-2xl rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto overscroll-contain shadow-2xl border border-white/80 text-slate-800"
+          >
             <div className="sticky top-0 bg-white/85 backdrop-blur-xl px-6 py-4 flex items-center justify-between border-b border-slate-200/80 z-10">
               <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
                 <span className="text-[#0284c7] font-semibold">{selectedArticle.category}</span>
@@ -297,9 +303,9 @@ export const UltimasNoticias: React.FC<UltimasNoticiasProps> = ({
                 type="button"
                 onClick={() => setSelectedArticle(null)}
                 className="p-1.5 text-slate-500 hover:text-slate-900 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
-                aria-label="Fechar notícia"
+                aria-label="Fechar"
               >
-                <X className="w-5 h-5" />
+                <X className="w-5 h-5" aria-hidden="true" />
               </button>
             </div>
 
@@ -313,7 +319,10 @@ export const UltimasNoticias: React.FC<UltimasNoticiasProps> = ({
             </div>
 
             <div className="p-6 sm:p-8 space-y-4">
-              <h2 className="font-display text-xl sm:text-2xl font-extrabold text-slate-900 leading-tight">
+              <h2
+                id={dialogTitleId}
+                className="font-display text-xl sm:text-2xl font-extrabold text-slate-900 leading-tight"
+              >
                 {selectedArticle.title}
               </h2>
 
@@ -331,7 +340,7 @@ export const UltimasNoticias: React.FC<UltimasNoticiasProps> = ({
               {selectedArticle.attachments && selectedArticle.attachments.length > 0 && (
                 <div className="pt-4 border-t border-slate-200 space-y-2.5">
                   <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
-                    <Paperclip className="w-3.5 h-3.5 text-[#0284c7]" />
+                    <Paperclip className="w-3.5 h-3.5 text-[#0284c7]" aria-hidden="true" />
                     <span>Arquivos e Documentos Anexados ({selectedArticle.attachments.length})</span>
                   </h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -346,7 +355,7 @@ export const UltimasNoticias: React.FC<UltimasNoticiasProps> = ({
                       >
                         <div className="flex items-center gap-2.5 min-w-0">
                           <div className="w-8 h-8 rounded-lg bg-[#061a38] text-[#38bdf8] flex items-center justify-center shrink-0">
-                            <FileText className="w-4 h-4" />
+                            <FileText className="w-4 h-4" aria-hidden="true" />
                           </div>
                           <div className="min-w-0">
                             <span className="text-xs font-bold text-slate-800 group-hover:text-[#0284c7] truncate block">
@@ -357,7 +366,7 @@ export const UltimasNoticias: React.FC<UltimasNoticiasProps> = ({
                             </span>
                           </div>
                         </div>
-                        <Download className="w-4 h-4 text-slate-400 group-hover:text-[#0284c7] shrink-0" />
+                        <Download className="w-4 h-4 text-slate-400 group-hover:text-[#0284c7] shrink-0" aria-hidden="true" />
                       </a>
                     ))}
                   </div>

@@ -1244,9 +1244,12 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     >
       {children}
 
-      {/* Floating Global Toasts for Instant UX Feedback */}
-      {toasts.length > 0 && (
-        <div className="fixed bottom-5 right-5 z-[100] flex flex-col gap-2 max-w-sm pointer-events-none">
+      {/* Floating Global Toasts for Instant UX Feedback (região sempre montada para leitores de tela anunciarem) */}
+      <div
+        role="status"
+        aria-live="polite"
+        className="fixed bottom-5 right-5 z-[100] flex flex-col gap-2 max-w-sm pointer-events-none"
+      >
           {toasts.map((toast) => (
             <div
               key={toast.id}
@@ -1260,6 +1263,7 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             >
               <span>{toast.message}</span>
               <button
+                type="button"
                 onClick={() => removeToast(toast.id)}
                 className="p-1 hover:bg-white/20 rounded-md transition-colors cursor-pointer"
                 aria-label="Fechar notificação"
@@ -1268,8 +1272,7 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
               </button>
             </div>
           ))}
-        </div>
-      )}
+      </div>
     </ClubDataContext.Provider>
   );
 };

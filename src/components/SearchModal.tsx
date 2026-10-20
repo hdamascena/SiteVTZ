@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Search, X, ArrowRight, Trophy, Calendar, FileText, MapPin } from 'lucide-react';
 import { useClubData } from '../context/ClubDataContext.tsx';
+import { useDialog } from '../hooks/useDialog.ts';
 
 interface SearchModalProps {
   isOpen: boolean;
@@ -13,6 +14,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
   onClose,
   onSelectAction,
 }) => {
+  const dialogRef = useDialog(isOpen, onClose);
   const { newsArticles, events, projects, transparencyDocs, sponsors, siteSettings, clubInfo } = useClubData();
   const [query, setQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<
@@ -167,28 +169,38 @@ export const SearchModal: React.FC<SearchModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center p-4 pt-16 sm:pt-24 bg-black/75 backdrop-blur-xs animate-in fade-in duration-150">
-      <div className="bg-white rounded-2xl max-w-2xl w-full overflow-hidden shadow-2xl border border-slate-200">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Buscar no site"
+        className="bg-white rounded-2xl max-w-2xl w-full overflow-hidden shadow-2xl border border-slate-200"
+      >
         <div className="p-4 sm:p-5 border-b border-slate-200 flex items-center gap-3 bg-slate-50">
-          <Search className="w-5 h-5 text-[#0284c7]" />
+          <Search className="w-5 h-5 text-[#0284c7]" aria-hidden="true" />
           <input
             type="search"
+            aria-label="Buscar no site"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="O que você procura na Vitalizar? (ex: futsal, estatuto, cnpj, terceira idade, voluntariado...)"
-            className="w-full text-sm sm:text-base bg-transparent border-0 focus:outline-none text-slate-800 placeholder-slate-400 font-medium"
+            placeholder="O que você procura na Vitalizar? (ex: futsal, estatuto, cnpj, terceira idade, voluntariado…)"
+            className="w-full text-sm sm:text-base bg-transparent border-0 rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 text-slate-800 placeholder-slate-400 font-medium"
             autoFocus
           />
           {query && (
             <button
+              type="button"
               onClick={() => setQuery('')}
               className="p-1 text-slate-400 hover:text-slate-600 rounded-md cursor-pointer"
               aria-label="Limpar busca"
             >
-              <X className="w-4 h-4" />
+              <X className="w-4 h-4" aria-hidden="true" />
             </button>
           )}
           <button
+            type="button"
             onClick={onClose}
+            aria-label="Fechar busca"
             className="px-2 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold rounded cursor-pointer"
           >
             ESC
@@ -201,6 +213,8 @@ export const SearchModal: React.FC<SearchModalProps> = ({
           {(['all', 'eventos', 'projetos', 'transparencia', 'noticia', 'patrocinadores', 'documentos'] as const).map((filter) => (
             <button
               key={filter}
+              type="button"
+              aria-pressed={categoryFilter === filter}
               onClick={() => setCategoryFilter(filter)}
               className={`px-3 py-1 rounded-lg font-bold uppercase text-[10px] tracking-wider transition-colors cursor-pointer shrink-0 ${
                 categoryFilter === filter
@@ -225,11 +239,20 @@ export const SearchModal: React.FC<SearchModalProps> = ({
           ))}
         </div>
 
+        {/* Contagem de resultados anunciada a leitores de tela */}
+        <p className="sr-only" aria-live="polite" role="status">
+          {query.trim() === ''
+            ? ''
+            : searchResults.length === 0
+            ? `Nenhum resultado encontrado para "${query}"`
+            : `${searchResults.length} ${searchResults.length === 1 ? 'resultado encontrado' : 'resultados encontrados'}`}
+        </p>
+
         {/* Results Area */}
         <div className="max-h-[380px] overflow-y-auto p-4 divide-y divide-slate-100">
           {query.trim() === '' ? (
             <div className="py-8 text-center text-slate-500 space-y-3">
-              <Search className="w-8 h-8 mx-auto text-slate-300" />
+              <Search className="w-8 h-8 mx-auto text-slate-300" aria-hidden="true" />
               <p className="text-xs font-medium">
                 Digite um termo para pesquisar clínicas esportivas, oficinas, reuniões, modalidades e prestação de contas.
               </p>
@@ -238,6 +261,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
                 {suggestions.map((sug) => (
                   <button
                     key={sug}
+                    type="button"
                     onClick={() => setQuery(sug)}
                     className="text-[#0284c7] font-semibold underline hover:text-[#0369a1] px-1 cursor-pointer"
                   >
@@ -251,6 +275,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
                   {siteSettings.siteTags.slice(0, 8).map((tag) => (
                     <button
                       key={tag}
+                      type="button"
                       onClick={() => setQuery(tag)}
                       className="px-2 py-0.5 bg-slate-100 hover:bg-sky-50 text-slate-600 hover:text-[#0284c7] rounded border border-slate-200 font-medium cursor-pointer transition-colors"
                     >
@@ -271,6 +296,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
             searchResults.map((item) => (
               <button
                 key={`${item.type}-${item.id}`}
+                type="button"
                 onClick={() => {
                   onSelectAction(item.actionType, item.id);
                   onClose();
@@ -278,7 +304,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
                 className="w-full text-left py-3 px-3 hover:bg-sky-50/70 rounded-xl transition-colors flex items-center justify-between group cursor-pointer"
               >
                 <div className="flex items-start gap-3">
-                  <div className="p-2 bg-sky-100 text-[#0284c7] rounded-lg mt-0.5 group-hover:bg-[#0284c7] group-hover:text-white transition-colors">
+                  <div aria-hidden="true" className="p-2 bg-sky-100 text-[#0284c7] rounded-lg mt-0.5 group-hover:bg-[#0284c7] group-hover:text-white transition-colors">
                     {item.type === 'eventos' && <Calendar className="w-4 h-4" />}
                     {item.type === 'projetos' && <Trophy className="w-4 h-4" />}
                     {item.type === 'transparencia' && <FileText className="w-4 h-4" />}
@@ -299,7 +325,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
                   <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 bg-sky-50 text-[#0284c7] border border-sky-200 rounded">
                     {item.type}
                   </span>
-                  <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-[#0284c7] group-hover:translate-x-1 transition-all" />
+                  <ArrowRight aria-hidden="true" className="w-4 h-4 text-slate-300 group-hover:text-[#0284c7] group-hover:translate-x-1 transition-all" />
                 </div>
               </button>
             ))

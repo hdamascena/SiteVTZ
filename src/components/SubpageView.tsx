@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useId } from 'react';
 import {
   ArrowLeft,
   Calendar,
@@ -28,6 +28,7 @@ import { NewsArticle } from '../types/index.ts';
 import { sortNewsByDate } from '../utils/newsSort.ts';
 import { EventsCalendar } from './EventsCalendar.tsx';
 import { SponsorsSection } from './SponsorsSection.tsx';
+import { useDialog } from '../hooks/useDialog.ts';
 
 interface SubpageViewProps {
   pageId: string;
@@ -61,6 +62,16 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
   const [newsFilterCategory, setNewsFilterCategory] = useState<string>('all');
   const [newsSearch, setNewsSearch] = useState('');
   const [selectedNewsArticle, setSelectedNewsArticle] = useState<NewsArticle | null>(null);
+  const newsDialogRef = useDialog(selectedNewsArticle !== null, () => setSelectedNewsArticle(null));
+  const newsDialogTitleId = useId();
+
+  // Ids para associar rótulos e campos do formulário de contato
+  const fieldId = useId();
+  const subjectId = `${fieldId}-assunto`;
+  const nameId = `${fieldId}-nome`;
+  const emailId = `${fieldId}-email`;
+  const phoneId = `${fieldId}-telefone`;
+  const messageId = `${fieldId}-mensagem`;
 
   // Sync subId changes when navigating across subpages
   useEffect(() => {
@@ -159,6 +170,7 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
             key={tab.id}
             type="button"
             onClick={() => setActiveTab(tab.id)}
+            aria-pressed={activeTab === tab.id}
             className={`pb-3 border-b-2 transition-colors whitespace-nowrap cursor-pointer ${
               activeTab === tab.id
                 ? 'border-[#0284c7] text-slate-900 font-bold'
@@ -491,7 +503,7 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
         <div className="lg:col-span-7 bg-white p-6 sm:p-8 rounded-xl border border-slate-200">
           {contactSent ? (
             <div className="py-10 text-center space-y-3">
-              <CheckCircle2 className="w-12 h-12 text-[#0284c7] mx-auto" />
+              <CheckCircle2 className="w-12 h-12 text-[#0284c7] mx-auto" aria-hidden="true" />
               <h3 className="text-lg font-bold text-slate-900">Mensagem Enviada!</h3>
               <p className="text-xs text-slate-600 max-w-md mx-auto">
                 Recebemos sua solicitação e responderemos pelo e-mail <strong>{email}</strong>.
@@ -507,10 +519,12 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
           ) : (
             <form onSubmit={handleSendMessage} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                <label htmlFor={subjectId} className="block text-xs font-semibold text-slate-700 mb-1">
                   Assunto *
                 </label>
                 <select
+                  id={subjectId}
+                  name="subject"
                   value={contactSubject}
                   onChange={(e) => setContactSubject(e.target.value)}
                   className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-600"
@@ -534,11 +548,14 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  <label htmlFor={nameId} className="block text-xs font-semibold text-slate-700 mb-1">
                     Nome Completo *
                   </label>
                   <input
+                    id={nameId}
+                    name="name"
                     type="text"
+                    autoComplete="name"
                     required
                     value={name}
                     onChange={(e) => setName(e.target.value)}
@@ -547,11 +564,15 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  <label htmlFor={emailId} className="block text-xs font-semibold text-slate-700 mb-1">
                     E-mail *
                   </label>
                   <input
+                    id={emailId}
+                    name="email"
                     type="email"
+                    autoComplete="email"
+                    spellCheck={false}
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
@@ -562,11 +583,15 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                <label htmlFor={phoneId} className="block text-xs font-semibold text-slate-700 mb-1">
                   Telefone / WhatsApp *
                 </label>
                 <input
+                  id={phoneId}
+                  name="phone"
                   type="tel"
+                  autoComplete="tel"
+                  inputMode="tel"
                   required
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
@@ -576,10 +601,12 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                <label htmlFor={messageId} className="block text-xs font-semibold text-slate-700 mb-1">
                   Mensagem *
                 </label>
                 <textarea
+                  id={messageId}
+                  name="message"
                   rows={4}
                   required
                   value={message}
@@ -593,7 +620,7 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
                 type="submit"
                 className="w-full py-3 bg-[#0284c7] hover:bg-[#0369a1] text-white font-semibold text-xs rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-2"
               >
-                <Send className="w-4 h-4" />
+                <Send className="w-4 h-4" aria-hidden="true" />
                 <span>Enviar Mensagem</span>
               </button>
             </form>
@@ -678,6 +705,7 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
                   key={cat.id}
                   type="button"
                   onClick={() => setNewsFilterCategory(cat.id)}
+                  aria-pressed={isSelected}
                   className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
                     isSelected
                       ? 'bg-white text-slate-900 shadow-2xs'
@@ -691,12 +719,15 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
           </div>
 
           <div className="relative w-full sm:w-64">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" aria-hidden="true" />
             <input
-              type="text"
+              type="search"
+              name="busca-noticias"
+              aria-label="Buscar notícias"
+              autoComplete="off"
               value={newsSearch}
               onChange={(e) => setNewsSearch(e.target.value)}
-              placeholder="Buscar notícia..."
+              placeholder="Buscar notícia…"
               className="w-full text-xs pl-9 pr-8 py-2 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-sky-600 focus:outline-none"
             />
             {newsSearch && (
@@ -706,7 +737,7 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
                 className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                 aria-label="Limpar busca"
               >
-                <X className="w-3.5 h-3.5" />
+                <X className="w-3.5 h-3.5" aria-hidden="true" />
               </button>
             )}
           </div>
@@ -750,7 +781,7 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
 
                 <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-semibold text-[#0284c7] w-full">
                   <span>Ler matéria</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
+                  <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
                 </div>
               </div>
             </button>
@@ -760,7 +791,13 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
         {/* Article Reader Modal */}
         {selectedNewsArticle && (
           <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-200">
+            <div
+              ref={newsDialogRef}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby={newsDialogTitleId}
+              className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto overscroll-contain shadow-2xl border border-slate-200"
+            >
               <div className="sticky top-0 z-20 bg-white/95 backdrop-blur-md border-b border-slate-200 px-6 py-4 flex items-center justify-between">
                 <div className="text-xs text-slate-500 font-medium">
                   <span>{selectedNewsArticle.category}</span>
@@ -771,16 +808,18 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => {
-                      if (navigator.clipboard) {
-                        navigator.clipboard.writeText(window.location.href);
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(window.location.href);
                         showToast('Link copiado!');
+                      } catch {
+                        showToast('Não foi possível copiar o link.');
                       }
                     }}
                     className="p-1.5 text-slate-500 hover:text-slate-900 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
                     aria-label="Compartilhar notícia"
                   >
-                    <Share2 className="w-4 h-4" />
+                    <Share2 className="w-4 h-4" aria-hidden="true" />
                   </button>
 
                   <button
@@ -789,7 +828,7 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
                     className="p-1.5 text-slate-500 hover:text-slate-900 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
                     aria-label="Fechar notícia"
                   >
-                    <X className="w-5 h-5" />
+                    <X className="w-5 h-5" aria-hidden="true" />
                   </button>
                 </div>
               </div>
@@ -804,9 +843,9 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
               </div>
 
               <div className="p-6 sm:p-8 space-y-4">
-                <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 leading-tight">
+                <h2 id={newsDialogTitleId} className="text-xl sm:text-2xl font-extrabold text-slate-900 leading-tight">
                   {selectedNewsArticle.title}
-                </h1>
+                </h2>
 
                 {selectedNewsArticle.author && (
                   <p className="text-xs text-slate-500">Por {selectedNewsArticle.author}</p>
@@ -827,7 +866,7 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
                 {selectedNewsArticle.attachments && selectedNewsArticle.attachments.length > 0 && (
                   <div className="pt-4 border-t border-slate-200 space-y-2.5">
                     <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
-                      <Paperclip className="w-3.5 h-3.5 text-[#0284c7]" />
+                      <Paperclip className="w-3.5 h-3.5 text-[#0284c7]" aria-hidden="true" />
                       <span>Arquivos Anexados ({selectedNewsArticle.attachments.length})</span>
                     </h3>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -841,7 +880,7 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
                           className="p-3 bg-slate-50 hover:bg-sky-50 border border-slate-200 hover:border-sky-300 rounded-xl flex items-center justify-between gap-3 transition-colors group"
                         >
                           <div className="flex items-center gap-2.5 min-w-0">
-                            <FileText className="w-4 h-4 text-[#0284c7] shrink-0" />
+                            <FileText className="w-4 h-4 text-[#0284c7] shrink-0" aria-hidden="true" />
                             <div className="min-w-0">
                               <span className="text-xs font-bold text-slate-800 group-hover:text-[#0284c7] truncate block">
                                 {att.name}
@@ -851,7 +890,7 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
                               </span>
                             </div>
                           </div>
-                          <Download className="w-4 h-4 text-slate-400 group-hover:text-[#0284c7] shrink-0" />
+                          <Download className="w-4 h-4 text-slate-400 group-hover:text-[#0284c7] shrink-0" aria-hidden="true" />
                         </a>
                       ))}
                     </div>
@@ -874,7 +913,7 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
             onClick={onBack}
             className="inline-flex items-center gap-2 text-xs font-semibold text-slate-700 hover:text-slate-950 transition-colors cursor-pointer bg-white px-3.5 py-2 rounded-lg border border-slate-200"
           >
-            <ArrowLeft className="w-4 h-4 text-[#0284c7]" />
+            <ArrowLeft className="w-4 h-4 text-[#0284c7]" aria-hidden="true" />
             <span>Voltar ao Início</span>
           </button>
         </div>

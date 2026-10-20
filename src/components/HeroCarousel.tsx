@@ -4,6 +4,8 @@ import {
   ArrowRight,
   ChevronLeft,
   ChevronRight,
+  Pause,
+  Play,
   Clock,
   MapPin,
   Trophy,
@@ -67,13 +69,21 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
 }) => {
   const { projects, events } = useClubData();
   const [activeSlide, setActiveSlide] = useState(0);
+  // Pausado pelo usuário (botão) ou por padrão quando o sistema pede menos movimento
+  const [userPaused, setUserPaused] = useState<boolean>(
+    () => !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+  );
+  // Pausa temporária enquanto o mouse ou o foco do teclado estão no carrossel
+  const [hoverPaused, setHoverPaused] = useState(false);
+  const isPaused = userPaused || hoverPaused;
 
   useEffect(() => {
+    if (isPaused) return;
     const timer = setInterval(() => {
       setActiveSlide((prev) => (prev + 1) % HERO_SLIDES.length);
     }, 7000);
     return () => clearInterval(timer);
-  }, []);
+  }, [isPaused]);
 
   const current = HERO_SLIDES[activeSlide];
 
@@ -81,6 +91,13 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
     <section
       className="bg-slate-50 border-b border-slate-200"
       aria-label="Destaques e Modalidades da Associação Esportiva Vitalizar"
+      aria-roledescription="carrossel"
+      onMouseEnter={() => setHoverPaused(true)}
+      onMouseLeave={() => setHoverPaused(false)}
+      onFocus={() => setHoverPaused(true)}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setHoverPaused(false);
+      }}
     >
       {/* Part 1: High-Impact Athletic Hero Showcase */}
       <div className="relative bg-gradient-to-br from-[#041226] via-[#071f40] to-[#0a2b56] text-white overflow-hidden">
@@ -96,11 +113,9 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-16">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-12 items-stretch">
             {/* Left Column: Editorial Headline, Crest Badge & Actions */}
+            {/* Sem fade inicial: o título do hero é o maior conteúdo visível (LCP) */}
             <motion.div
-              initial={{ opacity: 0, y: 18 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, amount: 0.2 }}
-              transition={{ duration: 0.55, ease: EASE_EDITORIAL }}
+              initial={false}
               className="lg:col-span-7 flex flex-col justify-between space-y-8"
             >
               <AnimatePresence mode="wait">
@@ -193,7 +208,8 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
                         type="button"
                         onClick={() => setActiveSlide(idx)}
                         aria-label={`Ir para destaque ${idx + 1}`}
-                        className={`h-2 rounded-full transition-all cursor-pointer ${
+                        aria-current={activeSlide === idx ? 'true' : undefined}
+                        className={`h-2 rounded-full transition-[width,background-color] cursor-pointer ${
                           activeSlide === idx
                             ? 'w-8 bg-[#38bdf8]'
                             : 'w-2 bg-white/30 hover:bg-white/60'
@@ -201,6 +217,19 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
                       />
                     ))}
                     <div className="flex items-center gap-1 ml-2">
+                      <button
+                        type="button"
+                        onClick={() => setUserPaused((p) => !p)}
+                        className="p-2 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+                        aria-label={userPaused ? 'Retomar troca automática dos destaques' : 'Pausar troca automática dos destaques'}
+                        aria-pressed={userPaused}
+                      >
+                        {userPaused ? (
+                          <Play className="w-4 h-4" aria-hidden="true" />
+                        ) : (
+                          <Pause className="w-4 h-4" aria-hidden="true" />
+                        )}
+                      </button>
                       <button
                         type="button"
                         onClick={() =>

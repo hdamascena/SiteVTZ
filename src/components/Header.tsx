@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useId } from 'react';
 import {
   Search,
   Menu,
@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 
 import { useClubData } from '../context/ClubDataContext.tsx';
+import { useDialog } from '../hooks/useDialog.ts';
 
 interface HeaderProps {
   onOpenSearch: () => void;
@@ -38,6 +39,8 @@ export const Header: React.FC<HeaderProps> = ({
   const { clubInfo } = useClubData();
   const [isScrolled, setIsScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const drawerRef = useDialog(mobileMenuOpen, () => setMobileMenuOpen(false));
+  const drawerId = useId();
 
   useEffect(() => {
     const handleScroll = () => {
@@ -90,6 +93,7 @@ export const Header: React.FC<HeaderProps> = ({
                 key={link.id}
                 type="button"
                 onClick={() => handleLinkClick(link.id)}
+                aria-current={isActive ? 'page' : undefined}
                 className={`text-sm font-semibold transition-colors py-1.5 whitespace-nowrap shrink-0 cursor-pointer relative after:content-[''] after:absolute after:bottom-0 after:left-0 after:h-0.5 after:bg-[#38bdf8] after:transition-all ${
                   isActive
                     ? 'text-white after:w-full'
@@ -111,7 +115,7 @@ export const Header: React.FC<HeaderProps> = ({
             aria-label="Buscar no portal"
             title="Buscar no portal"
           >
-            <Search className="w-4 h-4" />
+            <Search className="w-4 h-4" aria-hidden="true" />
           </button>
 
           {onOpenAdmin && (
@@ -121,7 +125,7 @@ export const Header: React.FC<HeaderProps> = ({
               className="hidden sm:inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-sky-200 hover:text-white hover:bg-white/10 rounded-xl transition-colors cursor-pointer whitespace-nowrap shrink-0"
               title="Painel Administrativo"
             >
-              <Lock className="w-3.5 h-3.5 text-sky-400" />
+              <Lock className="w-3.5 h-3.5 text-sky-400" aria-hidden="true" />
               <span>Admin</span>
             </button>
           )}
@@ -132,7 +136,7 @@ export const Header: React.FC<HeaderProps> = ({
             className="hidden sm:inline-flex items-center gap-1.5 px-4 py-2.5 bg-[#0284c7] hover:bg-[#0ea5e9] text-white font-semibold text-xs rounded-xl transition-all cursor-pointer whitespace-nowrap shrink-0 shadow-md shadow-sky-950/50"
           >
             <span>Inscrever-se</span>
-            <ArrowUpRight className="w-3.5 h-3.5" />
+            <ArrowUpRight className="w-3.5 h-3.5" aria-hidden="true" />
           </button>
 
           {/* Mobile Menu Trigger */}
@@ -142,8 +146,9 @@ export const Header: React.FC<HeaderProps> = ({
             className="lg:hidden p-2.5 text-sky-100 hover:text-white hover:bg-white/10 rounded-xl transition-colors cursor-pointer"
             aria-label={mobileMenuOpen ? 'Fechar menu' : 'Abrir menu de navegação'}
             aria-expanded={mobileMenuOpen}
+            aria-controls={drawerId}
           >
-            {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+            {mobileMenuOpen ? <X className="w-5 h-5" aria-hidden="true" /> : <Menu className="w-5 h-5" aria-hidden="true" />}
           </button>
         </div>
       </div>
@@ -154,8 +159,16 @@ export const Header: React.FC<HeaderProps> = ({
           <div
             className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs"
             onClick={() => setMobileMenuOpen(false)}
+            aria-hidden="true"
           />
-          <div className="relative w-full max-w-xs bg-[#061a38] text-white h-full shadow-2xl border-l border-sky-900/60 p-6 flex flex-col justify-between overflow-y-auto">
+          <div
+            ref={drawerRef}
+            id={drawerId}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Menu"
+            className="relative w-full max-w-xs bg-[#061a38] text-white h-full shadow-2xl border-l border-sky-900/60 p-6 flex flex-col justify-between overflow-y-auto overscroll-contain"
+          >
             <div>
               <div className="flex items-center justify-between pb-5 border-b border-sky-900/60">
                 <div className="flex items-center gap-3">
@@ -174,7 +187,7 @@ export const Header: React.FC<HeaderProps> = ({
                   className="p-2 text-sky-300 hover:text-white rounded-lg hover:bg-white/10 cursor-pointer"
                   aria-label="Fechar menu"
                 >
-                  <X className="w-5 h-5" />
+                  <X className="w-5 h-5" aria-hidden="true" />
                 </button>
               </div>
 
@@ -212,7 +225,7 @@ export const Header: React.FC<HeaderProps> = ({
                     }}
                     className="w-full py-2.5 px-4 bg-white/10 hover:bg-white/15 text-sky-100 font-semibold text-xs rounded-xl flex items-center justify-center gap-2 transition-colors cursor-pointer"
                   >
-                    <Lock className="w-3.5 h-3.5 text-sky-400" />
+                    <Lock className="w-3.5 h-3.5 text-sky-400" aria-hidden="true" />
                     <span>Painel Administrativo</span>
                   </button>
                 )}
