@@ -1,7 +1,55 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { ExternalLink, Award, ShieldCheck, HeartHandshake, Sparkles } from 'lucide-react';
 import { useClubData } from '../context/ClubDataContext.tsx';
 import type { Sponsor, SponsorTier } from '../types/index.ts';
+
+/** Iniciais do patrocinador (até 2 letras) para o fallback de logo quebrado. */
+const getInitials = (name: string) =>
+  name
+    .split(/\s+/)
+    .filter((w) => w.length > 2)
+    .slice(0, 2)
+    .map((w) => w[0].toUpperCase())
+    .join('') || name.slice(0, 1).toUpperCase();
+
+/**
+ * Logo do patrocinador com fallback neutro: se a URL falhar, a imagem some e
+ * as iniciais aparecem no mesmo box. Decorativo (alt=""): o nome já está ao lado.
+ */
+const SponsorLogo: React.FC<{
+  src: string;
+  name: string;
+  size: number;
+  className: string;
+  textClassName?: string;
+}> = ({ src, name, size, className, textClassName = 'text-sm' }) => {
+  const [failed, setFailed] = useState(false);
+  if (failed || !src) {
+    return (
+      <span
+        aria-hidden="true"
+        className={`w-full h-full flex items-center justify-center rounded-md bg-slate-200/70 text-slate-500 font-black select-none ${textClassName}`}
+      >
+        {getInitials(name)}
+      </span>
+    );
+  }
+  return (
+    <img
+      src={src}
+      alt=""
+      width={size}
+      height={size}
+      loading="lazy"
+      decoding="async"
+      className={className}
+      onError={(e) => {
+        e.currentTarget.onerror = null;
+        setFailed(true);
+      }}
+    />
+  );
+};
 
 interface SponsorsSectionProps {
   onOpenContact?: () => void;
@@ -104,7 +152,7 @@ export const SponsorsSection: React.FC<SponsorsSectionProps> = ({
             <button
               type="button"
               onClick={onOpenContact}
-              className="px-5 py-3 bg-[#0a1e36] hover:bg-[#0284c7] text-white text-xs font-bold uppercase tracking-wider rounded-xl shadow-md transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-2 border border-sky-400/30 shrink-0"
+              className="px-5 py-3 bg-[#0a1e36] hover:bg-[#0284c7] text-white text-xs font-bold uppercase tracking-wider rounded-xl shadow-md transition-[background-color,scale] active:scale-95 cursor-pointer flex items-center justify-center gap-2 border border-sky-400/30 shrink-0"
             >
               <HeartHandshake className="w-4 h-4 text-[#38bdf8]" />
               <span>Seja um Patrocinador</span>
@@ -125,18 +173,17 @@ export const SponsorsSection: React.FC<SponsorsSectionProps> = ({
               {masterSponsors.map((spon) => (
                 <div
                   key={spon.id}
-                  className="col-span-12 md:col-span-6 bg-white p-6 rounded-2xl border-2 border-amber-300 shadow-sm hover:shadow-md transition-all flex flex-col justify-between"
+                  className="col-span-12 md:col-span-6 bg-white p-6 rounded-2xl border-2 border-amber-300 shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between"
                 >
                   <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5">
                     <div className="w-24 h-24 rounded-xl bg-amber-50/50 p-2 flex items-center justify-center border border-amber-200 shrink-0 overflow-hidden">
-                      <img
+                      <SponsorLogo
+                        key={spon.logoUrl}
                         src={spon.logoUrl}
-                        alt={`Logo ${spon.name}`}
-                        className="w-full h-full object-cover rounded-lg"
-                        onError={(e) => {
-                          e.currentTarget.src =
-                            'https://images.unsplash.com/photo-1541872703-74c5e44368f9?w=400&q=80';
-                        }}
+                        name={spon.name}
+                        size={80}
+                        className="w-full h-full object-contain rounded-lg"
+                        textClassName="text-2xl"
                       />
                     </div>
                     <div>
@@ -184,7 +231,7 @@ export const SponsorsSection: React.FC<SponsorsSectionProps> = ({
               {[...ouroSponsors, ...prataSponsors].map((spon) => (
                 <div
                   key={spon.id}
-                  className="col-span-12 sm:col-span-6 lg:col-span-4 bg-white p-5 rounded-2xl border border-slate-200 hover:border-sky-300 shadow-2xs hover:shadow-sm transition-all flex flex-col justify-between"
+                  className="col-span-12 sm:col-span-6 lg:col-span-4 bg-white p-5 rounded-2xl border border-slate-200 hover:border-sky-300 shadow-2xs hover:shadow-sm transition-[border-color,box-shadow] flex flex-col justify-between"
                 >
                   <div>
                     <div className="flex items-center justify-between gap-3 mb-3">
@@ -204,14 +251,12 @@ export const SponsorsSection: React.FC<SponsorsSectionProps> = ({
 
                     <div className="flex items-center gap-3 mb-3">
                       <div className="w-14 h-14 rounded-lg bg-slate-50 p-1 flex items-center justify-center border border-slate-100 shrink-0 overflow-hidden">
-                        <img
+                        <SponsorLogo
+                          key={spon.logoUrl}
                           src={spon.logoUrl}
-                          alt={`Logo ${spon.name}`}
-                          className="w-full h-full object-cover rounded-md"
-                          onError={(e) => {
-                            e.currentTarget.src =
-                              'https://images.unsplash.com/photo-1559526324-4b87b5e36e44?w=400&q=80';
-                          }}
+                          name={spon.name}
+                          size={48}
+                          className="w-full h-full object-contain rounded-md"
                         />
                       </div>
                       <h4 className="text-sm font-bold text-slate-900 leading-snug">{spon.name}</h4>
@@ -253,17 +298,16 @@ export const SponsorsSection: React.FC<SponsorsSectionProps> = ({
               {[...bronzeSponsors, ...apoioSponsors].map((spon) => (
                 <div
                   key={spon.id}
-                  className="col-span-12 sm:col-span-6 lg:col-span-3 bg-white p-4 rounded-xl border border-slate-200 hover:border-slate-300 shadow-2xs transition-all flex items-center gap-3.5"
+                  className="col-span-12 sm:col-span-6 lg:col-span-3 bg-white p-4 rounded-xl border border-slate-200 hover:border-slate-300 shadow-2xs transition-colors flex items-center gap-3.5"
                 >
                   <div className="w-12 h-12 rounded-lg bg-slate-50 p-1 flex items-center justify-center border border-slate-100 shrink-0 overflow-hidden">
-                    <img
+                    <SponsorLogo
+                      key={spon.logoUrl}
                       src={spon.logoUrl}
-                      alt={`Logo ${spon.name}`}
-                      className="w-full h-full object-cover rounded-md"
-                      onError={(e) => {
-                        e.currentTarget.src =
-                          'https://images.unsplash.com/photo-1542838132-92c53300491e?w=400&q=80';
-                      }}
+                      name={spon.name}
+                      size={40}
+                      className="w-full h-full object-contain rounded-md"
+                      textClassName="text-xs"
                     />
                   </div>
                   <div className="min-w-0">
@@ -303,7 +347,7 @@ export const SponsorsSection: React.FC<SponsorsSectionProps> = ({
             <button
               type="button"
               onClick={onOpenContact}
-              className="px-6 py-3.5 bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-black uppercase tracking-wider rounded-xl transition-all shadow-lg active:scale-95 cursor-pointer shrink-0 border border-sky-300/40"
+              className="px-6 py-3.5 bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-black uppercase tracking-wider rounded-xl transition-[background-color,scale] shadow-lg active:scale-95 cursor-pointer shrink-0 border border-sky-300/40"
             >
               Solicitar Proposta de Parceria
             </button>

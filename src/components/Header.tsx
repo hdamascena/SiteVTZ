@@ -57,7 +57,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   return (
     <header
-      className={`sticky top-0 z-40 w-full transition-all duration-200 ${
+      className={`sticky top-0 z-40 w-full transition-[background-color,border-color,box-shadow] duration-200 ${
         isScrolled
           ? 'bg-[#04142b]/95 backdrop-blur-md border-b border-sky-900/60 shadow-lg'
           : 'bg-[#061a38] border-b border-sky-900/50'
@@ -73,7 +73,9 @@ export const Header: React.FC<HeaderProps> = ({
         >
           <img
             src="/logo.png"
-            alt="Brasão Associação Esportiva Vitalizar"
+            alt=""
+            width={96}
+            height={96}
             className="w-20 h-20 sm:w-24 sm:h-24 object-contain translate-y-2.5 sm:translate-y-3 drop-shadow-[0_10px_20px_rgba(0,0,0,0.6)] transition-transform duration-300 group-hover:scale-105 shrink-0"
           />
           <span className="font-display text-white font-extrabold text-xl sm:text-2xl tracking-tight whitespace-nowrap shrink-0">
@@ -94,7 +96,7 @@ export const Header: React.FC<HeaderProps> = ({
                 type="button"
                 onClick={() => handleLinkClick(link.id)}
                 aria-current={isActive ? 'page' : undefined}
-                className={`text-sm font-semibold transition-colors py-1.5 whitespace-nowrap shrink-0 cursor-pointer relative after:content-[''] after:absolute after:bottom-0 after:left-0 after:h-0.5 after:bg-[#38bdf8] after:transition-all ${
+                className={`text-sm font-semibold transition-colors py-1.5 whitespace-nowrap shrink-0 cursor-pointer relative after:content-[''] after:absolute after:bottom-0 after:left-0 after:h-0.5 after:bg-[#38bdf8] after:transition-[width] ${
                   isActive
                     ? 'text-white after:w-full'
                     : 'text-sky-100/80 hover:text-white after:w-0 hover:after:w-full'
@@ -133,7 +135,7 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             type="button"
             onClick={onOpenInscricoes}
-            className="hidden sm:inline-flex items-center gap-1.5 px-4 py-2.5 bg-[#0284c7] hover:bg-[#0ea5e9] text-white font-semibold text-xs rounded-xl transition-all cursor-pointer whitespace-nowrap shrink-0 shadow-md shadow-sky-950/50"
+            className="hidden sm:inline-flex items-center gap-1.5 px-4 py-2.5 bg-[#0284c7] hover:bg-[#0ea5e9] text-white font-semibold text-xs rounded-xl transition-colors cursor-pointer whitespace-nowrap shrink-0 shadow-md shadow-sky-950/50"
           >
             <span>Inscrever-se</span>
             <ArrowUpRight className="w-3.5 h-3.5" aria-hidden="true" />
@@ -174,7 +176,9 @@ export const Header: React.FC<HeaderProps> = ({
                 <div className="flex items-center gap-3">
                   <img
                     src="/logo.png"
-                    alt="Brasão Vitalizar"
+                    alt=""
+                    width={44}
+                    height={44}
                     className="w-11 h-11 object-contain shrink-0"
                   />
                   <span className="font-display font-extrabold text-lg text-white">

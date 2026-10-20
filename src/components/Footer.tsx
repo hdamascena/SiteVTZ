@@ -22,6 +22,14 @@ interface FooterProps {
 /** Garante link absoluto para redes sociais digitadas sem "https://" no painel. */
 const toExternalUrl = (url: string) => (/^https?:\/\//i.test(url) ? url : `https://${url.trim()}`);
 
+/** Converte telefone exibido (ex.: "(27) 99774-0773") em href tel: com DDI +55. */
+const toTelHref = (phone: string) => {
+  const digits = phone.replace(/\D/g, '');
+  if (digits.startsWith('0')) return `tel:${digits}`; // 0800 / DDD com operadora
+  if (phone.trim().startsWith('+') || digits.length > 11) return `tel:+${digits}`;
+  return `tel:+55${digits}`;
+};
+
 export const Footer: React.FC<FooterProps> = ({
   onOpenContact,
   onOpenPrivacy,
@@ -43,7 +51,11 @@ export const Footer: React.FC<FooterProps> = ({
             <div className="flex items-center gap-3">
               <img
                 src="/logo.png"
-                alt="Logo Associação Esportiva Vitalizar"
+                alt=""
+                width={48}
+                height={48}
+                loading="lazy"
+                decoding="async"
                 className="w-12 h-12 object-contain shrink-0"
               />
               <div>
@@ -141,12 +153,23 @@ export const Footer: React.FC<FooterProps> = ({
             <div className="space-y-2.5 text-xs text-slate-400">
               <div className="flex items-center gap-2 text-slate-200 font-medium">
                 <Phone className="w-4 h-4 text-sky-400 shrink-0" />
-                <span>{clubInfo.phones.join(' · ')}</span>
+                <span>
+                  {clubInfo.phones.map((phone, i) => (
+                    <React.Fragment key={`${i}-${phone}`}>
+                      {i > 0 && ' · '}
+                      <a href={toTelHref(phone)} className="hover:text-white transition-colors">
+                        {phone}
+                      </a>
+                    </React.Fragment>
+                  ))}
+                </span>
               </div>
 
               <div className="flex items-center gap-2">
                 <Mail className="w-4 h-4 text-sky-400 shrink-0" />
-                <span>{clubInfo.email}</span>
+                <a href={`mailto:${clubInfo.email}`} className="hover:text-white transition-colors">
+                  {clubInfo.email}
+                </a>
               </div>
 
               <div className="pt-2">

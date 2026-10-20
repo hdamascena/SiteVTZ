@@ -540,8 +540,14 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           case STORAGE_KEYS.CLUB_INFO:
             setClubInfoState(normalizeClubInfo(value));
             break;
+          case STORAGE_KEYS.SITE_SETTINGS:
+            setSiteSettingsState(normalizeSiteSettings(value));
+            break;
           case STORAGE_KEYS.NEWS:
             setNewsArticles(normalizeNews(value));
+            break;
+          case STORAGE_KEYS.SPONSORS:
+            setSponsors(value);
             break;
           case STORAGE_KEYS.EVENTS:
             setEvents(value);
@@ -1253,7 +1259,7 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           {toasts.map((toast) => (
             <div
               key={toast.id}
-              className={`pointer-events-auto p-4 rounded-xl shadow-2xl text-xs font-semibold flex items-center justify-between gap-3 text-white border transition-all animate-in slide-in-from-bottom-3 duration-200 ${
+              className={`pointer-events-auto p-4 rounded-xl shadow-2xl text-xs font-semibold flex items-center justify-between gap-3 text-white border transition-opacity animate-in slide-in-from-bottom-3 duration-200 ${
                 toast.type === 'error'
                   ? 'bg-rose-600 border-rose-700'
                   : toast.type === 'info'

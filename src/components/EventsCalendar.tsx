@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { motion } from 'motion/react';
+import { m } from 'motion/react';
 import {
   Calendar as CalendarIcon,
   Clock,
@@ -35,6 +35,8 @@ interface EventsCalendarProps {
   onOpenInscricoes?: () => void;
   className?: string;
   initialCategory?: EventCategory | 'all';
+  /** Abre o evento com este id (link compartilhado #/eventos/<id>) */
+  initialEventId?: string;
 }
 
 const EASE_EDITORIAL: [number, number, number, number] = [0.16, 1, 0.3, 1];
@@ -43,6 +45,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
   onOpenInscricoes,
   className = '',
   initialCategory = 'all',
+  initialEventId,
 }) => {
   const { events, addRsvp, showToast } = useClubData();
   const [selectedCategory, setSelectedCategory] = useState<EventCategory | 'all'>(initialCategory);
@@ -65,6 +68,13 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
       setSelectedCategory(initialCategory);
     }
   }, [initialCategory]);
+
+  // Link compartilhado: abre o evento assim que ele estiver disponível (dados podem chegar do Firestore depois)
+  useEffect(() => {
+    if (!initialEventId) return;
+    const found = events.find((ev) => ev.id === initialEventId);
+    if (found) setSelectedEvent(found);
+  }, [initialEventId, events]);
 
   // RSVP Modal State
   const [rsvpSpots, setRsvpSpots] = useState(1);
@@ -118,7 +128,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
 
   const handleCopyLink = () => {
     if (!selectedEvent) return;
-    const url = `${window.location.origin}/#eventos-${selectedEvent.id}`;
+    const url = `${window.location.origin}${window.location.pathname}#/eventos/${encodeURIComponent(selectedEvent.id)}`;
     const onCopyFailed = () => showToast('Não foi possível copiar o link.');
     try {
       if (!navigator.clipboard?.writeText) throw new Error('Clipboard indisponível');
@@ -175,7 +185,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
 
       <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Section Header */}
-        <motion.div
+        <m.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, amount: 0.25 }}
@@ -201,7 +211,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                 type="button"
                 onClick={() => setViewMode('grid')}
                 aria-pressed={viewMode === 'grid'}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all inline-flex items-center gap-1.5 cursor-pointer ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-[color,background-color,box-shadow] inline-flex items-center gap-1.5 cursor-pointer ${
                   viewMode === 'grid'
                     ? 'bg-[#061a38] text-white shadow-2xs'
                     : 'text-slate-600 hover:text-slate-900'
@@ -214,7 +224,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                 type="button"
                 onClick={() => setViewMode('agenda')}
                 aria-pressed={viewMode === 'agenda'}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all inline-flex items-center gap-1.5 cursor-pointer ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-[color,background-color,box-shadow] inline-flex items-center gap-1.5 cursor-pointer ${
                   viewMode === 'agenda'
                     ? 'bg-[#061a38] text-white shadow-2xs'
                     : 'text-slate-600 hover:text-slate-900'
@@ -225,10 +235,10 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
               </button>
             </div>
           </div>
-        </motion.div>
+        </m.div>
 
         {/* Glassmorphic Filter & Search Toolbar */}
-        <motion.div
+        <m.div
           initial={{ opacity: 0, y: 16 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, amount: 0.25 }}
@@ -248,7 +258,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                   type="button"
                   aria-pressed={isActive}
                   onClick={() => setSelectedCategory(tab.id as EventCategory | 'all')}
-                  className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                  className={`px-4 py-2 rounded-xl text-xs font-semibold transition-[color,background-color,box-shadow] cursor-pointer whitespace-nowrap shrink-0 ${
                     isActive
                       ? 'bg-[#0284c7] text-white shadow-sm shadow-sky-500/25'
                       : 'bg-white/75 hover:bg-white text-slate-600 hover:text-slate-900 border border-slate-200/70'
@@ -283,7 +293,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
               </button>
             )}
           </div>
-        </motion.div>
+        </m.div>
 
         {/* Events Display */}
         {filteredEvents.length === 0 ? (
@@ -320,7 +330,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
               );
 
               return (
-                <motion.button
+                <m.button
                   key={event.id}
                   type="button"
                   initial={{ opacity: 0, y: 24 }}
@@ -332,7 +342,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                     ease: EASE_EDITORIAL,
                   }}
                   onClick={() => openEventDetails(event)}
-                  className={`group relative text-left rounded-2xl backdrop-blur-xl transition-all duration-300 flex flex-col justify-between overflow-hidden cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600 hover:-translate-y-1 ${
+                  className={`group relative text-left rounded-2xl backdrop-blur-xl transition-[translate,background-color,border-color,box-shadow] duration-300 flex flex-col justify-between overflow-hidden cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600 hover:-translate-y-1 ${
                     isFeatured
                       ? 'bg-gradient-to-br from-[#061a38]/92 via-[#092752]/90 to-[#041226]/95 text-white border border-sky-400/40 shadow-[0_16px_40px_rgba(2,132,199,0.18)]'
                       : 'bg-white/75 hover:bg-white/90 text-slate-900 border border-white/90 hover:border-sky-300/80 shadow-[0_8px_30px_rgb(15,23,42,0.06)] hover:shadow-[0_16px_36px_rgb(2,132,199,0.12)]'
@@ -463,7 +473,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                         }`}
                       >
                         <div
-                          className="h-full rounded-full bg-gradient-to-r from-[#0284c7] to-[#38bdf8] transition-all duration-300"
+                          className="h-full rounded-full bg-gradient-to-r from-[#0284c7] to-[#38bdf8] transition-[width] duration-300"
                           style={{ width: `${occupancyPercent}%` }}
                         />
                       </div>
@@ -478,13 +488,13 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                       <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" aria-hidden="true" />
                     </div>
                   </div>
-                </motion.button>
+                </m.button>
               );
             })}
           </div>
         ) : (
           /* Glassmorphic Timeline List View */
-          <motion.div
+          <m.div
             initial={{ opacity: 0, y: 18 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, amount: 0.15 }}
@@ -538,11 +548,11 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                 </button>
               );
             })}
-          </motion.div>
+          </m.div>
         )}
 
         {/* Glassmorphic Community Callout Banner */}
-        <motion.div
+        <m.div
           initial={{ opacity: 0, y: 22 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, amount: 0.2 }}
@@ -562,6 +572,10 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                 <img
                   src="/logo.png"
                   alt="Brasão Associação Esportiva Vitalizar"
+                  width={56}
+                  height={56}
+                  loading="lazy"
+                  decoding="async"
                   className="w-14 h-14 object-contain drop-shadow-md"
                 />
               </div>
@@ -582,14 +596,14 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
               <button
                 type="button"
                 onClick={onOpenInscricoes}
-                className="px-6 py-3.5 bg-[#0284c7]/90 hover:bg-[#0ea5e9] backdrop-blur-md border border-sky-300/40 text-white font-semibold text-xs sm:text-sm rounded-xl shadow-lg transition-all cursor-pointer whitespace-nowrap shrink-0 inline-flex items-center gap-2"
+                className="px-6 py-3.5 bg-[#0284c7]/90 hover:bg-[#0ea5e9] backdrop-blur-md border border-sky-300/40 text-white font-semibold text-xs sm:text-sm rounded-xl shadow-lg transition-colors cursor-pointer whitespace-nowrap shrink-0 inline-flex items-center gap-2"
               >
                 <span>Fazer Pré-Inscrição Gratuita</span>
                 <ArrowRight className="w-4 h-4" aria-hidden="true" />
               </button>
             )}
           </div>
-        </motion.div>
+        </m.div>
       </div>
 
       {/* Glassmorphic Event Detail & RSVP Modal */}

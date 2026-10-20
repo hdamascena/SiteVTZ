@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { motion } from 'motion/react';
+import { m } from 'motion/react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -91,7 +91,7 @@ export const PhotoGallerySection: React.FC = () => {
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header & Segmented Filter Control */}
-        <motion.div
+        <m.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, amount: 0.25 }}
@@ -125,7 +125,7 @@ export const PhotoGallerySection: React.FC = () => {
                   type="button"
                   aria-pressed={active}
                   onClick={() => setSelectedCategory(cat)}
-                  className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                  className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-[color,background-color,box-shadow] cursor-pointer whitespace-nowrap shrink-0 ${
                     active
                       ? 'bg-[#0284c7] text-white shadow-sm'
                       : 'text-sky-100/80 hover:text-white'
@@ -136,7 +136,7 @@ export const PhotoGallerySection: React.FC = () => {
               );
             })}
           </div>
-        </motion.div>
+        </m.div>
 
         {/* Rich 4-Column Photo Album Grid with Staggered Scroll Reveal */}
         {filteredAlbums.length === 0 && (
@@ -146,7 +146,7 @@ export const PhotoGallerySection: React.FC = () => {
         )}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
           {filteredAlbums.map((album, idx) => (
-            <motion.div
+            <m.div
               key={album.id}
               initial={{ opacity: 0, y: 24 }}
               whileInView={{ opacity: 1, y: 0 }}
@@ -157,7 +157,7 @@ export const PhotoGallerySection: React.FC = () => {
                 ease: EASE_EDITORIAL,
               }}
               onClick={() => openLightbox(album, 0)}
-              className="group text-left bg-[#0b2548]/85 backdrop-blur-xl rounded-2xl overflow-hidden border border-sky-400/20 hover:border-[#38bdf8]/60 shadow-lg hover:shadow-2xl transition-all duration-300 flex flex-col justify-between has-[.album-cover:focus-visible]:ring-2 has-[.album-cover:focus-visible]:ring-sky-400 cursor-pointer hover:-translate-y-1"
+              className="group text-left bg-[#0b2548]/85 backdrop-blur-xl rounded-2xl overflow-hidden border border-sky-400/20 hover:border-[#38bdf8]/60 shadow-lg hover:shadow-2xl transition-[translate,border-color,box-shadow] duration-300 flex flex-col justify-between has-[.album-cover:focus-visible]:ring-2 has-[.album-cover:focus-visible]:ring-sky-400 cursor-pointer hover:-translate-y-1"
             >
               <div>
                 <button
@@ -173,8 +173,11 @@ export const PhotoGallerySection: React.FC = () => {
                     src={album.coverUrl}
                     alt={album.title}
                     referrerPolicy="no-referrer"
+                    width={640}
+                    height={480}
                     className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                     loading="lazy"
+                    decoding="async"
                   />
                   <span className="absolute inset-0 bg-gradient-to-t from-[#041226] via-transparent to-transparent opacity-85" />
 
@@ -225,8 +228,11 @@ export const PhotoGallerySection: React.FC = () => {
                         src={photo.url}
                         alt=""
                         referrerPolicy="no-referrer"
+                        width={320}
+                        height={200}
                         className="w-full h-full object-cover"
                         loading="lazy"
+                        decoding="async"
                       />
                     </button>
                   ))}
@@ -237,7 +243,7 @@ export const PhotoGallerySection: React.FC = () => {
                   <ArrowUpRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" aria-hidden="true" />
                 </div>
               </div>
-            </motion.div>
+            </m.div>
           ))}
         </div>
       </div>
@@ -307,7 +313,10 @@ export const PhotoGallerySection: React.FC = () => {
                   alt={currentPhoto.caption}
                   referrerPolicy="no-referrer"
                   onClick={() => setIsZoomed(!isZoomed)}
-                  className={`max-h-[62vh] max-w-full object-contain rounded-lg transition-transform duration-200 cursor-zoom-in ${
+                  width={1200}
+                  height={800}
+                  decoding="async"
+                  className={`w-auto h-auto max-h-[62vh] max-w-full object-contain rounded-lg transition-transform duration-200 cursor-zoom-in ${
                     isZoomed ? 'scale-125 cursor-zoom-out' : 'scale-100'
                   }`}
                 />
@@ -345,7 +354,7 @@ export const PhotoGallerySection: React.FC = () => {
                   setPhotoIndex(index);
                   setIsZoomed(false);
                 }}
-                className={`relative w-16 h-12 sm:w-20 sm:h-14 rounded-lg overflow-hidden border-2 transition-all shrink-0 cursor-pointer ${
+                className={`relative w-16 h-12 sm:w-20 sm:h-14 rounded-lg overflow-hidden border-2 transition-[border-color,opacity] shrink-0 cursor-pointer ${
                   photoIndex === index
                     ? 'border-[#38bdf8] opacity-100'
                     : 'border-transparent opacity-50 hover:opacity-90'
@@ -357,6 +366,10 @@ export const PhotoGallerySection: React.FC = () => {
                   src={photo.url}
                   alt=""
                   referrerPolicy="no-referrer"
+                  width={160}
+                  height={112}
+                  loading="lazy"
+                  decoding="async"
                   className="w-full h-full object-cover"
                 />
               </button>

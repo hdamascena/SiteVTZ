@@ -1,5 +1,8 @@
 import { useEffect, useRef } from 'react';
 
+// Pilha de diálogos abertos: só o do topo responde a Esc/Tab (ex.: PIN aberto sobre um editor)
+const dialogStack: symbol[] = [];
+
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
@@ -21,6 +24,9 @@ export function useDialog<T extends HTMLElement = HTMLDivElement>(isOpen: boolea
     if (!isOpen) return;
     const node = ref.current;
     const previouslyFocused = document.activeElement as HTMLElement | null;
+    const token = Symbol('dialog');
+    dialogStack.push(token);
+    const isTop = () => dialogStack[dialogStack.length - 1] === token;
 
     const focusables = () =>
       node ? Array.from(node.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => el.offsetParent !== null) : [];
@@ -37,6 +43,7 @@ export function useDialog<T extends HTMLElement = HTMLDivElement>(isOpen: boolea
     }
 
     const onKeyDown = (e: KeyboardEvent) => {
+      if (!isTop()) return;
       if (e.key === 'Escape') {
         e.stopPropagation();
         onCloseRef.current();
@@ -66,6 +73,8 @@ export function useDialog<T extends HTMLElement = HTMLDivElement>(isOpen: boolea
 
     return () => {
       document.removeEventListener('keydown', onKeyDown);
+      const idx = dialogStack.indexOf(token);
+      if (idx !== -1) dialogStack.splice(idx, 1);
       document.body.style.overflow = prevOverflow;
       if (previouslyFocused && document.contains(previouslyFocused)) previouslyFocused.focus();
     };

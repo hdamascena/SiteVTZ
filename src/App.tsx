@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, lazy, Suspense } from 'react';
-import { motion, MotionConfig } from 'motion/react';
+import { m, LazyMotion, MotionConfig } from 'motion/react';
 import { ClubDataProvider, useClubData } from './context/ClubDataContext.tsx';
 import { Header } from './components/Header.tsx';
 import { HeroCarousel } from './components/HeroCarousel.tsx';
@@ -16,6 +16,9 @@ import { CookieBanner } from './components/CookieBanner.tsx';
 import { SponsorsSection } from './components/SponsorsSection.tsx';
 import { ArrowUp, Megaphone, ArrowRight } from 'lucide-react';
 import type { EventCategory } from './types/index.ts';
+
+// Recursos de animação do motion carregados sob demanda (fora do bundle inicial)
+const loadFeatures = () => import('./motionFeatures.ts').then((mod) => mod.default);
 
 // Carregados sob demanda: ficam fora do bundle inicial (o painel inclui Firebase Auth)
 const SearchModal = lazy(() =>
@@ -35,6 +38,31 @@ const AdminPanel = lazy(() =>
 
 const EASE_EDITORIAL: [number, number, number, number] = [0.16, 1, 0.3, 1];
 
+// ============================================================================
+// Rotas por hash: #/<pagina>/<item>  (ex.: #/noticias/<id>, #/eventos/<id>)
+// Mantém Voltar/recarregar/compartilhar funcionando sem servidor de rotas.
+// ============================================================================
+type Route = { page: string | null; sub?: string };
+
+const EVENT_CATEGORIES = ['clinica_esportiva', 'oficina_comunitaria', 'reuniao_associacao'];
+
+function parseRoute(hash: string): Route | null {
+  if (hash.startsWith('#/')) {
+    const [page, sub] = hash.slice(2).split('/').map((p) => decodeURIComponent(p));
+    return { page: page || null, sub: sub || undefined };
+  }
+  // Links antigos de compartilhamento de evento: #eventos-<id>
+  const legacy = hash.match(/^#eventos-(.+)$/);
+  if (legacy) return { page: 'eventos', sub: decodeURIComponent(legacy[1]) };
+  if (hash === '' || hash === '#') return { page: null };
+  return null; // #admin, #conteudo etc. não mudam a página
+}
+
+function routeToHash(page: string | null, sub?: string): string {
+  if (!page) return '#/';
+  return `#/${encodeURIComponent(page)}${sub ? `/${encodeURIComponent(sub)}` : ''}`;
+}
+
 function VitalizarMainApp() {
   const { siteSettings } = useClubData();
   const [searchOpen, setSearchOpen] = useState(false);
@@ -45,12 +73,52 @@ function VitalizarMainApp() {
   const [activeSubpage, setActiveSubpage] = useState<string | null>(null);
   const [activeSubTab, setActiveSubTab] = useState<string | undefined>(undefined);
   const [homeEventCategory, setHomeEventCategory] = useState<EventCategory | 'all'>('all');
+  const [homeEventId, setHomeEventId] = useState<string | undefined>(undefined);
+
+  /** Aplica uma rota ao estado da tela (só usa setters, seguro dentro de listeners). */
+  const applyRoute = (route: Route) => {
+    const { page, sub } = route;
+    if (!page || page === 'home') {
+      setActiveSubpage(null);
+      setActiveSubTab(undefined);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
+    if (page === 'eventos') {
+      if (sub && EVENT_CATEGORIES.includes(sub)) {
+        setHomeEventCategory(sub as EventCategory);
+        setHomeEventId(undefined);
+      } else {
+        setHomeEventCategory('all');
+        setHomeEventId(sub);
+      }
+      setActiveSubpage(null);
+      setActiveSubTab(undefined);
+      setTimeout(() => {
+        const el = document.getElementById('eventos-calendario');
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth' });
+        } else {
+          window.scrollTo({ top: 650, behavior: 'smooth' });
+        }
+      }, 100);
+      return;
+    }
+
+    setActiveSubpage(page);
+    setActiveSubTab(sub);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   useEffect(() => {
     const checkHash = () => {
       if (window.location.hash === '#admin') {
         setAdminOpen(true);
+        return;
       }
+      const route = parseRoute(window.location.hash);
+      if (route) applyRoute(route);
     };
     checkHash();
     window.addEventListener('hashchange', checkHash);
@@ -78,47 +146,28 @@ function VitalizarMainApp() {
     };
   }, []);
 
+  /** Navega atualizando o hash (cria entrada no histórico → botão Voltar funciona). */
   const handleOpenSubpage = (pageId: string, subId?: string) => {
-    if (pageId === 'home') {
-      setActiveSubpage(null);
-      setActiveSubTab(undefined);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-      return;
-    }
-
     if (pageId === 'inscricoes') {
       setInscricoesOpen(true);
       return;
     }
 
-    if (pageId === 'eventos' || subId === 'eventos') {
-      if (
-        subId === 'clinica_esportiva' ||
-        subId === 'oficina_comunitaria' ||
-        subId === 'reuniao_associacao'
-      ) {
-        setHomeEventCategory(subId);
-      } else {
-        setHomeEventCategory('all');
-      }
-      if (activeSubpage) {
-        setActiveSubpage(null);
-        setActiveSubTab(undefined);
-      }
-      setTimeout(() => {
-        const el = document.getElementById('eventos-calendario');
-        if (el) {
-          el.scrollIntoView({ behavior: 'smooth' });
-        } else {
-          window.scrollTo({ top: 650, behavior: 'smooth' });
-        }
-      }, 100);
-      return;
+    let route: Route;
+    if (pageId === 'home') {
+      route = { page: null };
+    } else if (pageId === 'eventos' || subId === 'eventos') {
+      route = { page: 'eventos', sub: subId === 'eventos' ? undefined : subId };
+    } else {
+      route = { page: pageId, sub: subId };
     }
 
-    setActiveSubpage(pageId);
-    setActiveSubTab(subId);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    const hash = routeToHash(route.page, route.sub);
+    if (window.location.hash === hash) {
+      applyRoute(route); // mesmo endereço: hashchange não dispara
+    } else {
+      window.location.hash = hash; // o listener de hashchange aplica a rota
+    }
   };
 
   const handleSearchSelectAction = (actionType: string, id: string) => {
@@ -189,7 +238,7 @@ function VitalizarMainApp() {
               key={`${activeSubpage}-${activeSubTab ?? ''}`}
               pageId={activeSubpage}
               subId={activeSubTab}
-              onBack={() => setActiveSubpage(null)}
+              onBack={() => handleOpenSubpage('home')}
               onOpenInscricoes={() => setInscricoesOpen(true)}
             />
           </Suspense>
@@ -203,7 +252,7 @@ function VitalizarMainApp() {
             />
 
             {/* Section 2: Agenda de Eventos & Oficinas (RSVP Rápido) */}
-            <motion.div
+            <m.div
               initial={{ opacity: 0, y: 24 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, amount: 0.08 }}
@@ -212,21 +261,22 @@ function VitalizarMainApp() {
               <EventsCalendar
                 onOpenInscricoes={() => setInscricoesOpen(true)}
                 initialCategory={homeEventCategory}
+                initialEventId={homeEventId}
               />
-            </motion.div>
+            </m.div>
 
             {/* Section 3: Galeria de Projetos e Eventos com Lightbox */}
-            <motion.div
+            <m.div
               initial={{ opacity: 0, y: 24 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, amount: 0.08 }}
               transition={{ duration: 0.6, ease: EASE_EDITORIAL }}
             >
               <PhotoGallerySection />
-            </motion.div>
+            </m.div>
 
             {/* Section 4: Notícias Recentes & Acesso Institucional */}
-            <motion.div
+            <m.div
               initial={{ opacity: 0, y: 24 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, amount: 0.08 }}
@@ -236,11 +286,11 @@ function VitalizarMainApp() {
                 onViewAllNews={() => handleOpenSubpage('noticias')}
                 onOpenSubpage={handleOpenSubpage}
               />
-            </motion.div>
+            </m.div>
 
             {/* Section 5: Patrocinadores e Parceiros Oficiais */}
             {siteSettings.enableSponsorsSection !== false && (
-              <motion.div
+              <m.div
                 id="patrocinadores-oficiais"
                 initial={{ opacity: 0, y: 24 }}
                 whileInView={{ opacity: 1, y: 0 }}
@@ -250,7 +300,7 @@ function VitalizarMainApp() {
                 <SponsorsSection
                   onOpenContact={() => handleOpenSubpage('contato', 'parcerias')}
                 />
-              </motion.div>
+              </m.div>
             )}
           </>
         )}
@@ -317,7 +367,9 @@ export default function App() {
     <ClubDataProvider>
       {/* Respeita "reduzir movimento" do sistema nas animações do motion */}
       <MotionConfig reducedMotion="user">
-        <VitalizarMainApp />
+        <LazyMotion features={loadFeatures} strict>
+          <VitalizarMainApp />
+        </LazyMotion>
       </MotionConfig>
     </ClubDataProvider>
   );

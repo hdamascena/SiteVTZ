@@ -260,6 +260,10 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
                 src={polo.imageUrl}
                 alt={polo.name}
                 referrerPolicy="no-referrer"
+                width={640}
+                height={280}
+                loading="lazy"
+                decoding="async"
                 className="h-44 w-full object-cover"
               />
               <div className="p-5 flex-1 flex flex-col justify-between">
@@ -348,6 +352,10 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
                 src={proj.imageUrl}
                 alt={proj.name}
                 referrerPolicy="no-referrer"
+                width={640}
+                height={400}
+                loading="lazy"
+                decoding="async"
                 className="w-full h-full object-cover"
               />
             </div>
@@ -757,8 +765,11 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
                   src={article.imageUrl}
                   alt={article.title}
                   referrerPolicy="no-referrer"
+                  width={640}
+                  height={400}
                   className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                   loading="lazy"
+                  decoding="async"
                 />
               </div>
 
@@ -810,7 +821,9 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
                     type="button"
                     onClick={async () => {
                       try {
-                        await navigator.clipboard.writeText(window.location.href);
+                        await navigator.clipboard.writeText(
+                          `${window.location.origin}${window.location.pathname}#/noticias/${encodeURIComponent(selectedNewsArticle.id)}`
+                        );
                         showToast('Link copiado!');
                       } catch {
                         showToast('Não foi possível copiar o link.');
@@ -838,6 +851,9 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
                   src={selectedNewsArticle.imageUrl}
                   alt={selectedNewsArticle.title}
                   referrerPolicy="no-referrer"
+                  width={1000}
+                  height={563}
+                  decoding="async"
                   className="w-full h-full object-cover"
                 />
               </div>
