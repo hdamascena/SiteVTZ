@@ -81,6 +81,84 @@ export interface PastEventPhoto {
   }[];
 }
 
+export interface ProjectStaffMember {
+  id: string;
+  name: string;
+  role: string;
+  cref?: string;
+  photoUrl: string;
+  bio: string;
+  specialties: string[];
+  contact?: string;
+}
+
+export interface PlayerAttributes {
+  pace: number; // VEL (Velocidade)
+  shooting: number; // FIN (Finalização)
+  passing: number; // PAS (Passe)
+  dribbling: number; // DRI (Drible)
+  defending: number; // DEF (Defesa)
+  physical: number; // FIS (Físico)
+  overall: number; // OVR Geral
+}
+
+export interface PlayerHighlightVideo {
+  id: string;
+  title: string;
+  duration: string;
+  videoUrl?: string;
+  youtubeId?: string;
+  thumbnailUrl: string;
+  description: string;
+  categoryTag?: string;
+}
+
+export interface ProjectParticipant {
+  id: string;
+  name: string;
+  nickname?: string;
+  photoUrl: string;
+  jerseyNumber: number;
+  position: string;
+  positionGroup: 'ataque' | 'meio' | 'defesa' | 'goleiro';
+  preferredFoot: 'Destro' | 'Canhoto' | 'Ambidestro';
+  age: number;
+  birthDate: string;
+  category: string;
+  height: string;
+  weight: string;
+  cardTier: 'ouro' | 'diamante' | 'promessa' | 'destaque' | 'prata';
+  stats: PlayerAttributes;
+  schoolInfo: {
+    schoolName: string;
+    grade: string;
+    turn: 'Matutino' | 'Vespertino' | 'Integral';
+    attendanceRate: string;
+  };
+  highlights: string[];
+  scoutReport: {
+    summary: string;
+    strengths: string[];
+    developmentAreas: string[];
+    scoutRating: string;
+  };
+  photos: string[];
+  videos: PlayerHighlightVideo[];
+}
+
+export interface ProjectFunctioning {
+  overview: string;
+  methodology: string;
+  requirements: string[];
+  scheduleDetails: {
+    day: string;
+    hours: string;
+    polo: string;
+    modality: string;
+  }[];
+  benefits: string[];
+}
+
 export interface VitalizarProject {
   id: string;
   name: string;
@@ -98,6 +176,14 @@ export interface VitalizarProject {
   coordinator: string;
   fundingSource: string;
   imageUrl: string;
+  shieldUrl?: string;
+  motto?: string;
+  totalSpots?: number;
+  filledSpots?: number;
+  availableSpots?: number;
+  functioning?: ProjectFunctioning;
+  staff?: ProjectStaffMember[];
+  participants?: ProjectParticipant[];
   tags?: string[];
   attachments?: AttachedFile[];
 }
@@ -143,6 +229,45 @@ export interface TransparencyDocument {
   fileName?: string;
   fileSize?: string;
   fileDataUrl?: string;
+  period?: string;
+  protocolNumber?: string;
+  responsible?: string;
+  financialValue?: string;
+  summaryPoints?: string[];
+}
+
+export interface SocioTorcedorTier {
+  id: string;
+  name: string;
+  count: number;
+  monthlyContribution: string;
+  benefitSummary: string;
+}
+
+export interface TransparencyDashboardConfig {
+  socioTorcedoresTotal: number;
+  socioTorcedoresGoal: number;
+  socioTorcedoresNewMonth: number;
+  socioTorcedoresRetentionRate: string;
+  socioTorcedoresTiers: SocioTorcedorTier[];
+  socioTorcedoresMonthlyGrowth: { month: string; count: number }[];
+  fiscalYear: string;
+  totalRevenue: number;
+  totalInvested: number;
+  directBeneficiaries: number;
+  auditStatus: string;
+  lastAuditDate: string;
+  allocationBreakdown: {
+    label: string;
+    percentage: number;
+    amount: number;
+    description: string;
+  }[];
+  revenueSources: {
+    label: string;
+    percentage: number;
+    amount: number;
+  }[];
 }
 
 export type EventCategory = 'clinica_esportiva' | 'oficina_comunitaria' | 'reuniao_associacao';
@@ -209,6 +334,8 @@ export interface SiteSettings {
   enableFloatingWhatsapp: boolean;
   enableSearch: boolean;
   enableRsvpModal: boolean;
+  transparencyDashboard?: TransparencyDashboardConfig;
 }
+
 
 
