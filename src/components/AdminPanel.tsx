@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useDialog } from '../hooks/useDialog.ts';
 import {
   ShieldAlert,
   ShieldCheck,
@@ -112,7 +113,12 @@ function useSyncedDraft<T>(source: T) {
 
 /** Só envia ao salvar as seções que realmente mudaram em relação ao que está publicado. */
 function changedOrUndefined<T>(next: T, published: T): T | undefined {
-  return JSON.stringify(next) !== JSON.stringify(published) ? next : undefined;
+  return isDifferent(next, published) ? next : undefined;
+}
+
+/** Compara por referência primeiro (barato) e só serializa quando as referências diferem. */
+function isDifferent<T>(a: T, b: T): boolean {
+  return a !== b && JSON.stringify(a) !== JSON.stringify(b);
 }
 
 /** Troca dois patrocinadores de posição (por id, funciona com filtro ativo) e renumera a ordem. */
@@ -147,6 +153,7 @@ const ImageUploadField: React.FC<ImageUploadFieldProps> = ({
   onChange,
   onError,
 }) => {
+  const fid = React.useId();
   const [isUploading, setIsUploading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
 
@@ -182,7 +189,7 @@ const ImageUploadField: React.FC<ImageUploadFieldProps> = ({
 
   return (
     <div className="space-y-2">
-      <label className="block font-bold text-slate-700 uppercase text-xs">{label}</label>
+      <label htmlFor={`${fid}-url`} className="block font-bold text-slate-700 uppercase text-xs">{label}</label>
       <div
         onDragOver={(e) => {
           e.preventDefault();
@@ -218,16 +225,16 @@ const ImageUploadField: React.FC<ImageUploadFieldProps> = ({
         {/* Upload Button + URL Input */}
         <div className="sm:col-span-8 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <label className="px-3.5 py-2 bg-[#0a1e36] hover:bg-[#0284c7] text-white text-xs font-bold rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1.5 shadow-2xs">
+            <label className="px-3.5 py-2 bg-[#0a1e36] hover:bg-[#0284c7] text-white text-xs font-bold rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1.5 shadow-2xs focus-within:ring-2 focus-within:ring-sky-500 focus-within:ring-offset-1">
               <Upload className="w-3.5 h-3.5 text-[#38bdf8]" />
               <span>
-                {isUploading ? 'Comprimindo...' : 'Enviar ou Arrastar Imagem do Computador'}
+                {isUploading ? 'Comprimindo…' : 'Enviar ou Arrastar Imagem do Computador'}
               </span>
               <input
                 type="file"
                 accept="image/*"
                 onChange={handleFileChange}
-                className="hidden"
+                className="sr-only"
                 disabled={isUploading}
               />
             </label>
@@ -240,10 +247,13 @@ const ImageUploadField: React.FC<ImageUploadFieldProps> = ({
           </div>
 
           <div>
-            <span className="text-[11px] text-slate-500 block mb-1">
+            <span id={`${fid}-url-hint`} className="text-[11px] text-slate-500 block mb-1">
               Ou informe o link externo (URL) da imagem:
             </span>
             <input
+              id={`${fid}-url`}
+              aria-describedby={`${fid}-url-hint`}
+              spellCheck={false}
               type="text"
               value={imageUrl}
               onChange={(e) => onChange(e.target.value)}
@@ -276,6 +286,7 @@ const AttachmentsEditor: React.FC<AttachmentsEditorProps> = ({
   const [externalName, setExternalName] = useState('');
   const [externalUrl, setExternalUrl] = useState('');
   const [showLinkInput, setShowLinkInput] = useState(false);
+  const fid = React.useId();
 
   const processFilesList = async (fileList: FileList) => {
     if (!fileList || fileList.length === 0) return;
@@ -357,15 +368,15 @@ const AttachmentsEditor: React.FC<AttachmentsEditorProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 shrink-0">
-          <label className="px-3 py-1.5 bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-bold rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1.5 shadow-2xs">
+          <label className="px-3 py-1.5 bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-bold rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1.5 shadow-2xs focus-within:ring-2 focus-within:ring-sky-500 focus-within:ring-offset-1">
             <Upload className="w-3.5 h-3.5" />
-            <span>{isUploading ? 'Anexando...' : '+ Anexar Arquivo(s)'}</span>
+            <span>{isUploading ? 'Anexando…' : '+ Anexar Arquivo(s)'}</span>
             <input
               type="file"
               multiple
               accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,image/*"
               onChange={handleFilesSelected}
-              className="hidden"
+              className="sr-only"
               disabled={isUploading}
             />
           </label>
@@ -373,6 +384,7 @@ const AttachmentsEditor: React.FC<AttachmentsEditorProps> = ({
           <button
             type="button"
             onClick={() => setShowLinkInput(!showLinkInput)}
+            aria-expanded={showLinkInput}
             className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 text-xs font-bold rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1"
           >
             <Link2 className="w-3.5 h-3.5 text-[#0284c7]" />
@@ -384,10 +396,11 @@ const AttachmentsEditor: React.FC<AttachmentsEditorProps> = ({
       {showLinkInput && (
         <div className="p-3 bg-white rounded-lg border border-sky-200 grid grid-cols-1 sm:grid-cols-12 gap-2 items-end">
           <div className="sm:col-span-5">
-            <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
+            <label htmlFor={`${fid}-ext-name`} className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
               Nome do Documento
             </label>
             <input
+              id={`${fid}-ext-name`}
               type="text"
               value={externalName}
               onChange={(e) => setExternalName(e.target.value)}
@@ -396,14 +409,16 @@ const AttachmentsEditor: React.FC<AttachmentsEditorProps> = ({
             />
           </div>
           <div className="sm:col-span-5">
-            <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
+            <label htmlFor={`${fid}-ext-url`} className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
               URL do Arquivo
             </label>
             <input
+              id={`${fid}-ext-url`}
               type="url"
+              spellCheck={false}
               value={externalUrl}
               onChange={(e) => setExternalUrl(e.target.value)}
-              placeholder="https://..."
+              placeholder="https://…"
               className="w-full p-2 text-xs bg-slate-50 border border-slate-300 rounded-md"
             />
           </div>
@@ -452,6 +467,7 @@ const AttachmentsEditor: React.FC<AttachmentsEditorProps> = ({
                   rel="noopener noreferrer"
                   className="p-1.5 text-slate-500 hover:text-[#0284c7] hover:bg-sky-50 rounded-md transition-colors"
                   title="Baixar / Visualizar arquivo"
+                  aria-label="Baixar / Visualizar arquivo"
                 >
                   <Download className="w-3.5 h-3.5" />
                 </a>
@@ -460,6 +476,7 @@ const AttachmentsEditor: React.FC<AttachmentsEditorProps> = ({
                   onClick={() => handleRemove(att.id)}
                   className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors cursor-pointer"
                   title="Remover anexo"
+                  aria-label="Remover anexo"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
@@ -497,6 +514,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
     showToast,
     isFirebaseActive,
   } = useClubData();
+
+  // Prefixo único para associar <label htmlFor> aos campos do painel
+  const fid = React.useId();
 
   // Authentication State
   const [session, setSession] = useState<AdminSession | null>(() => {
@@ -679,17 +699,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
   const [pinError, setPinError] = useState(false);
 
   // Dirty / Unsaved Changes Detection
-  const isClubInfoDirty = JSON.stringify(draftClubInfo) !== JSON.stringify(clubInfo);
-  const isSiteSettingsDirty = JSON.stringify(draftSiteSettings) !== JSON.stringify(siteSettings);
-  const isNewsDirty = JSON.stringify(draftNews) !== JSON.stringify(newsArticles);
-  const isSponsorsDirty = JSON.stringify(draftSponsors) !== JSON.stringify(sponsors);
-  const isEventsDirty = JSON.stringify(draftEvents) !== JSON.stringify(events);
-  const isProjectsDirty = JSON.stringify(draftProjects) !== JSON.stringify(projects);
-  const isAlbumsDirty = JSON.stringify(draftAlbums) !== JSON.stringify(galleryAlbums);
-  const isDocsDirty = JSON.stringify(draftDocs) !== JSON.stringify(transparencyDocs);
-  const isRsvpsDirty = JSON.stringify(draftRsvps) !== JSON.stringify(rsvps);
-  const isMessagesDirty = JSON.stringify(draftMessages) !== JSON.stringify(contactMessages);
-  const isCredsDirty = JSON.stringify(draftCreds) !== JSON.stringify(creds);
+  // Memoizado e com checagem por referência primeiro: os dados incluem imagens base64,
+  // então serializar tudo a cada tecla digitada deixava o painel lento.
+  const isClubInfoDirty = useMemo(() => isDifferent(draftClubInfo, clubInfo), [draftClubInfo, clubInfo]);
+  const isSiteSettingsDirty = useMemo(
+    () => isDifferent(draftSiteSettings, siteSettings),
+    [draftSiteSettings, siteSettings]
+  );
+  const isNewsDirty = useMemo(() => isDifferent(draftNews, newsArticles), [draftNews, newsArticles]);
+  const isSponsorsDirty = useMemo(() => isDifferent(draftSponsors, sponsors), [draftSponsors, sponsors]);
+  const isEventsDirty = useMemo(() => isDifferent(draftEvents, events), [draftEvents, events]);
+  const isProjectsDirty = useMemo(() => isDifferent(draftProjects, projects), [draftProjects, projects]);
+  const isAlbumsDirty = useMemo(() => isDifferent(draftAlbums, galleryAlbums), [draftAlbums, galleryAlbums]);
+  const isDocsDirty = useMemo(() => isDifferent(draftDocs, transparencyDocs), [draftDocs, transparencyDocs]);
+  const isRsvpsDirty = useMemo(() => isDifferent(draftRsvps, rsvps), [draftRsvps, rsvps]);
+  const isMessagesDirty = useMemo(
+    () => isDifferent(draftMessages, contactMessages),
+    [draftMessages, contactMessages]
+  );
+  const isCredsDirty = useMemo(() => isDifferent(draftCreds, creds), [draftCreds, creds]);
   const hasOpenModalDraft = Boolean(
     editingNews ||
       editingSponsor ||
@@ -713,6 +741,69 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
     isMessagesDirty ||
     isCredsDirty ||
     hasOpenModalDraft;
+
+  // Avisa o navegador ao fechar/recarregar a aba com alterações não salvas
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [hasUnsavedChanges]);
+
+  // Tamanho estimado do backup: só serializa na aba de Backup e quando os dados publicados mudam
+  const backupEstimatedBytes = useMemo(
+    () => (activeTab === 'backup' ? new Blob([buildBackupJson()]).size : 0),
+    // buildBackupJson é recriada a cada render do contexto; os dados abaixo são o que ela serializa
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      activeTab,
+      clubInfo,
+      siteSettings,
+      newsArticles,
+      sponsors,
+      events,
+      projects,
+      galleryAlbums,
+      transparencyDocs,
+      rsvps,
+      contactMessages,
+    ]
+  );
+
+  // Modais acessíveis (Esc fecha, foco preso e devolvido, rolagem travada)
+  const newsDialogRef = useDialog(editingNews !== null, () => {
+    setIsCreatingNews(false);
+    setEditingNews(null);
+  });
+  const sponsorDialogRef = useDialog(editingSponsor !== null, () => {
+    setEditingSponsor(null);
+    setIsCreatingSponsor(false);
+  });
+  const eventDialogRef = useDialog(editingEvent !== null, () => {
+    setIsCreatingEvent(false);
+    setEditingEvent(null);
+  });
+  const projectDialogRef = useDialog(editingProject !== null, () => {
+    setIsCreatingProject(false);
+    setEditingProject(null);
+  });
+  const albumDialogRef = useDialog(editingAlbum !== null, () => {
+    setIsCreatingAlbum(false);
+    setEditingAlbum(null);
+  });
+  const docDialogRef = useDialog(editingDoc !== null, () => {
+    setIsCreatingDoc(false);
+    setEditingDoc(null);
+  });
+  const rsvpDialogRef = useDialog(editingRsvpItem !== null, () => {
+    setEditingRsvpItem(null);
+    setIsCreatingRsvp(false);
+  });
+  const unsavedDialogRef = useDialog(unsavedClosePromptOpen, () => setUnsavedClosePromptOpen(false));
+  const pinDialogRef = useDialog(pinPromptOpen, () => setPinPromptOpen(false));
 
   const handleDiscardAllChanges = () => {
     setDraftClubInfo(clubInfo);
@@ -1266,7 +1357,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
           {/* Body / Form */}
           <div className="p-6 sm:p-8 space-y-5">
             {loginError && (
-              <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-3 text-xs text-rose-800 animate-in shake duration-200">
+              <div
+                role="alert"
+                className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-3 text-xs text-rose-800 animate-in shake duration-200"
+              >
                 <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
                 <div>
                   <span className="font-bold block">Falha de Autenticação</span>
@@ -1289,11 +1383,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
             ) : (
               <form onSubmit={handleLogin} className="space-y-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                  <label htmlFor={`${fid}-login-email`} className="block text-xs font-bold text-slate-700 uppercase mb-1">
                     E-mail Institucional *
                   </label>
                   <input
+                    id={`${fid}-login-email`}
                     type="email"
+                    name="email"
+                    autoComplete="username"
+                    spellCheck={false}
                     required
                     value={loginEmail}
                     onChange={(e) => setLoginEmail(e.target.value)}
@@ -1303,11 +1401,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                  <label htmlFor={`${fid}-login-pass`} className="block text-xs font-bold text-slate-700 uppercase mb-1">
                     Senha de Administrador *
                   </label>
                   <div className="relative">
                     <input
+                      id={`${fid}-login-pass`}
+                      name="password"
+                      autoComplete="current-password"
                       type={showPassword ? 'text' : 'password'}
                       required
                       value={loginPass}
@@ -1334,7 +1435,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   <Unlock className="w-4 h-4 text-[#38bdf8]" />
                   <span>
                     {isAuthenticatingFirebase
-                      ? 'Verificando Credenciais...'
+                      ? 'Verificando Credenciais…'
                       : 'Autenticar com Credenciais'}
                   </span>
                 </button>
@@ -1385,6 +1486,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
             onClick={() => setMobileNavOpen(!mobileNavOpen)}
             className="md:hidden p-1.5 text-sky-200 hover:text-white rounded-lg hover:bg-white/10 cursor-pointer"
             aria-label="Menu administrativo"
+            aria-expanded={mobileNavOpen}
           >
             {mobileNavOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
@@ -1503,6 +1605,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
         {/* Mobile backdrop */}
         {mobileNavOpen && (
           <div
+            aria-hidden="true"
             onClick={() => setMobileNavOpen(false)}
             className="md:hidden fixed inset-0 z-30 bg-black/60 backdrop-blur-2xs"
           />
@@ -1575,6 +1678,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   return (
                     <button
                       key={item.id}
+                      type="button"
+                      aria-current={isActive ? 'page' : undefined}
                       onClick={() => {
                         setActiveTab(item.id as any);
                         setMobileNavOpen(false);
@@ -1724,89 +1829,95 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
               {/* Metric Cards Grid */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
-                <div
+                <button
+                  type="button"
                   onClick={() => setActiveTab('eventos')}
-                  className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-sky-300 shadow-xs space-y-2 cursor-pointer transition-all"
+                  className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-sky-300 shadow-xs space-y-2 cursor-pointer transition-all text-left w-full block"
                 >
-                  <div className="flex items-center justify-between text-slate-500">
+                  <span className="flex items-center justify-between text-slate-500">
                     <span className="text-xs font-bold uppercase">Eventos</span>
                     <CalendarDays className="w-5 h-5 text-[#0284c7]" />
-                  </div>
-                  <div className="text-3xl font-black text-[#0a1e36]">{draftEvents.length}</div>
+                  </span>
+                  <span className="block text-3xl font-black text-[#0a1e36]">{draftEvents.length}</span>
                   <span className="text-[11px] text-slate-500 block">
                     Clínicas, oficinas e reuniões
                   </span>
-                </div>
+                </button>
 
-                <div
+                <button
+                  type="button"
                   onClick={() => setActiveTab('projetos')}
-                  className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-sky-300 shadow-xs space-y-2 cursor-pointer transition-all"
+                  className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-sky-300 shadow-xs space-y-2 cursor-pointer transition-all text-left w-full block"
                 >
-                  <div className="flex items-center justify-between text-slate-500">
+                  <span className="flex items-center justify-between text-slate-500">
                     <span className="text-xs font-bold uppercase">Projetos</span>
                     <FolderKanban className="w-5 h-5 text-[#0284c7]" />
-                  </div>
-                  <div className="text-3xl font-black text-[#0a1e36]">{draftProjects.length}</div>
+                  </span>
+                  <span className="block text-3xl font-black text-[#0a1e36]">{draftProjects.length}</span>
                   <span className="text-[11px] text-slate-500 block">
                     Modalidades e turmas ativas
                   </span>
-                </div>
+                </button>
 
-                <div
+                <button
+                  type="button"
                   onClick={() => setActiveTab('noticias')}
-                  className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-sky-300 shadow-xs space-y-2 cursor-pointer transition-all"
+                  className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-sky-300 shadow-xs space-y-2 cursor-pointer transition-all text-left w-full block"
                 >
-                  <div className="flex items-center justify-between text-slate-500">
+                  <span className="flex items-center justify-between text-slate-500">
                     <span className="text-xs font-bold uppercase">Notícias</span>
                     <Newspaper className="w-5 h-5 text-[#0284c7]" />
-                  </div>
-                  <div className="text-3xl font-black text-[#0a1e36]">{draftNews.length}</div>
+                  </span>
+                  <span className="block text-3xl font-black text-[#0a1e36]">{draftNews.length}</span>
                   <span className="text-[11px] text-slate-500 block">
                     Artigos e comunicados
                   </span>
-                </div>
+                </button>
 
-                <div
+                <button
+                  type="button"
                   onClick={() => setActiveTab('patrocinadores')}
-                  className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-sky-300 shadow-xs space-y-2 cursor-pointer transition-all"
+                  className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-sky-300 shadow-xs space-y-2 cursor-pointer transition-all text-left w-full block"
                 >
-                  <div className="flex items-center justify-between text-slate-500">
+                  <span className="flex items-center justify-between text-slate-500">
                     <span className="text-xs font-bold uppercase">Parcerias</span>
                     <HeartHandshake className="w-5 h-5 text-amber-600" />
-                  </div>
-                  <div className="text-3xl font-black text-[#0a1e36]">{draftSponsors.length}</div>
+                  </span>
+                  <span className="block text-3xl font-black text-[#0a1e36]">{draftSponsors.length}</span>
                   <span className="text-[11px] text-slate-500 block">
                     {draftSponsors.filter((s) => s.active).length} ativos no portal
                   </span>
-                </div>
+                </button>
 
-                <div
+                <button
+                  type="button"
                   onClick={() => setActiveTab('galeria')}
-                  className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-sky-300 shadow-xs space-y-2 cursor-pointer transition-all"
+                  className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-sky-300 shadow-xs space-y-2 cursor-pointer transition-all text-left w-full block"
                 >
-                  <div className="flex items-center justify-between text-slate-500">
+                  <span className="flex items-center justify-between text-slate-500">
                     <span className="text-xs font-bold uppercase">Álbuns de Fotos</span>
                     <Camera className="w-5 h-5 text-[#0284c7]" />
-                  </div>
-                  <div className="text-3xl font-black text-[#0a1e36]">{draftAlbums.length}</div>
+                  </span>
+                  <span className="block text-3xl font-black text-[#0a1e36]">{draftAlbums.length}</span>
                   <span className="text-[11px] text-slate-500 block">
                     {draftAlbums.reduce((acc, a) => acc + a.albumPhotos.length, 0)} fotos publicadas
                   </span>
-                </div>
+                </button>
 
-                <div
+                <button
+                  type="button"
                   onClick={() => setActiveTab('transparencia')}
-                  className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-sky-300 shadow-xs space-y-2 cursor-pointer transition-all"
+                  className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-sky-300 shadow-xs space-y-2 cursor-pointer transition-all text-left w-full block"
                 >
-                  <div className="flex items-center justify-between text-slate-500">
+                  <span className="flex items-center justify-between text-slate-500">
                     <span className="text-xs font-bold uppercase">Transparência</span>
                     <FileText className="w-5 h-5 text-emerald-600" />
-                  </div>
-                  <div className="text-3xl font-black text-emerald-700">{draftDocs.length}</div>
+                  </span>
+                  <span className="block text-3xl font-black text-emerald-700">{draftDocs.length}</span>
                   <span className="text-[11px] text-slate-500 block">
                     Documentos e arquivos MROSC
                   </span>
-                </div>
+                </button>
               </div>
 
               {/* Recent Activity & Logs */}
@@ -1894,10 +2005,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
               >
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    <label htmlFor={`${fid}-f1`} className="block text-xs font-bold text-slate-700 uppercase mb-1">
                       Razão Social
                     </label>
-                    <input
+                    <input id={`${fid}-f1`}
                       type="text"
                       value={draftClubInfo.fullName}
                       onChange={(e) =>
@@ -1908,10 +2019,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    <label htmlFor={`${fid}-f2`} className="block text-xs font-bold text-slate-700 uppercase mb-1">
                       Nome Fantasia / Sigla
                     </label>
-                    <input
+                    <input id={`${fid}-f2`}
                       type="text"
                       value={draftClubInfo.tradeName}
                       onChange={(e) =>
@@ -1922,11 +2033,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    <label htmlFor={`${fid}-f3`} className="block text-xs font-bold text-slate-700 uppercase mb-1">
                       CNPJ Oficial
                     </label>
-                    <input
+                    <input id={`${fid}-f3`}
                       type="text"
+                      inputMode="numeric"
                       value={draftClubInfo.cnpj}
                       onChange={(e) =>
                         setDraftClubInfo({ ...draftClubInfo, cnpj: e.target.value })
@@ -1938,10 +2050,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    <label htmlFor={`${fid}-f4`} className="block text-xs font-bold text-slate-700 uppercase mb-1">
                       Presidente em Exercício
                     </label>
-                    <input
+                    <input id={`${fid}-f4`}
                       type="text"
                       value={draftClubInfo.president}
                       onChange={(e) =>
@@ -1952,10 +2064,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    <label htmlFor={`${fid}-f5`} className="block text-xs font-bold text-slate-700 uppercase mb-1">
                       Assessoria Jurídica
                     </label>
-                    <input
+                    <input id={`${fid}-f5`}
                       type="text"
                       value={draftClubInfo.legalCounsel}
                       onChange={(e) =>
@@ -1966,10 +2078,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    <label htmlFor={`${fid}-f6`} className="block text-xs font-bold text-slate-700 uppercase mb-1">
                       Data da Consolidação Estatutária
                     </label>
-                    <input
+                    <input id={`${fid}-f6`}
                       type="text"
                       value={draftClubInfo.statuteDate}
                       onChange={(e) =>
@@ -1982,10 +2094,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div className="sm:col-span-1">
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    <label htmlFor={`${fid}-f7`} className="block text-xs font-bold text-slate-700 uppercase mb-1">
                       Endereço da Sede
                     </label>
-                    <input
+                    <input id={`${fid}-f7`}
                       type="text"
                       value={draftClubInfo.address}
                       onChange={(e) =>
@@ -1996,11 +2108,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    <label htmlFor={`${fid}-f8`} className="block text-xs font-bold text-slate-700 uppercase mb-1">
                       CEP
                     </label>
-                    <input
+                    <input id={`${fid}-f8`}
                       type="text"
+                      inputMode="numeric"
+                      autoComplete="postal-code"
                       value={draftClubInfo.cep}
                       onChange={(e) =>
                         setDraftClubInfo({ ...draftClubInfo, cep: e.target.value })
@@ -2010,10 +2124,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    <label htmlFor={`${fid}-f9`} className="block text-xs font-bold text-slate-700 uppercase mb-1">
                       Município / UF
                     </label>
-                    <input
+                    <input id={`${fid}-f9`}
                       type="text"
                       value={draftClubInfo.municipality}
                       onChange={(e) =>
@@ -2026,11 +2140,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    <label htmlFor={`${fid}-f10`} className="block text-xs font-bold text-slate-700 uppercase mb-1">
                       Telefones / WhatsApp (Separados por vírgula)
                     </label>
-                    <input
+                    <input id={`${fid}-f10`}
                       type="text"
+                      inputMode="tel"
                       value={draftClubInfo.phones.join(', ')}
                       onChange={(e) =>
                         setDraftClubInfo({
@@ -2044,11 +2159,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    <label htmlFor={`${fid}-f11`} className="block text-xs font-bold text-slate-700 uppercase mb-1">
                       E-mail Institucional Principal
                     </label>
-                    <input
+                    <input id={`${fid}-f11`}
                       type="email"
+                      spellCheck={false}
                       value={draftClubInfo.email}
                       onChange={(e) =>
                         setDraftClubInfo({ ...draftClubInfo, email: e.target.value })
@@ -2061,10 +2177,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                 {/* Horários de Funcionamento */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-100">
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    <label htmlFor={`${fid}-f12`} className="block text-xs font-bold text-slate-700 uppercase mb-1">
                       Horário da Secretaria / Atendimento
                     </label>
-                    <input
+                    <input id={`${fid}-f12`}
                       type="text"
                       value={draftClubInfo.hours?.secretaria || ''}
                       onChange={(e) =>
@@ -2078,10 +2194,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    <label htmlFor={`${fid}-f13`} className="block text-xs font-bold text-slate-700 uppercase mb-1">
                       Horário das Atividades Esportivas
                     </label>
-                    <input
+                    <input id={`${fid}-f13`}
                       type="text"
                       value={draftClubInfo.hours?.activities || ''}
                       onChange={(e) =>
@@ -2098,11 +2214,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                 {/* Redes Sociais */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2 border-t border-slate-100">
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    <label htmlFor={`${fid}-f14`} className="block text-xs font-bold text-slate-700 uppercase mb-1">
                       Link do Instagram
                     </label>
-                    <input
+                    <input id={`${fid}-f14`}
                       type="url"
+                      spellCheck={false}
                       value={draftClubInfo.socials?.instagram || ''}
                       onChange={(e) =>
                         setDraftClubInfo({
@@ -2115,11 +2232,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    <label htmlFor={`${fid}-f15`} className="block text-xs font-bold text-slate-700 uppercase mb-1">
                       Link do Facebook
                     </label>
-                    <input
+                    <input id={`${fid}-f15`}
                       type="url"
+                      spellCheck={false}
                       value={draftClubInfo.socials?.facebook || ''}
                       onChange={(e) =>
                         setDraftClubInfo({
@@ -2132,11 +2250,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    <label htmlFor={`${fid}-f16`} className="block text-xs font-bold text-slate-700 uppercase mb-1">
                       Link do YouTube
                     </label>
-                    <input
+                    <input id={`${fid}-f16`}
                       type="url"
+                      spellCheck={false}
                       value={draftClubInfo.socials?.youtube || ''}
                       onChange={(e) =>
                         setDraftClubInfo({
@@ -2251,10 +2370,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
                 <div className="grid grid-cols-1 md:grid-cols-12 gap-4 text-xs">
                   <div className="md:col-span-6">
-                    <label className="block font-bold text-slate-700 uppercase mb-1">
+                    <label htmlFor={`${fid}-f17`} className="block font-bold text-slate-700 uppercase mb-1">
                       Texto do Comunicado
                     </label>
-                    <input
+                    <input id={`${fid}-f17`}
                       type="text"
                       value={draftSiteSettings.announcementBanner.text}
                       onChange={(e) =>
@@ -2271,10 +2390,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                     />
                   </div>
                   <div className="md:col-span-3">
-                    <label className="block font-bold text-slate-700 uppercase mb-1">
+                    <label htmlFor={`${fid}-f18`} className="block font-bold text-slate-700 uppercase mb-1">
                       Texto do Botão (Opcional)
                     </label>
-                    <input
+                    <input id={`${fid}-f18`}
                       type="text"
                       value={draftSiteSettings.announcementBanner.linkLabel || ''}
                       onChange={(e) =>
@@ -2291,10 +2410,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                     />
                   </div>
                   <div className="md:col-span-3">
-                    <label className="block font-bold text-slate-700 uppercase mb-1">
+                    <label htmlFor={`${fid}-f19`} className="block font-bold text-slate-700 uppercase mb-1">
                       Destino ao Clicar
                     </label>
-                    <select
+                    <select id={`${fid}-f19`}
                       value={draftSiteSettings.announcementBanner.linkTarget || 'inscricoes'}
                       onChange={(e) =>
                         setDraftSiteSettings({
@@ -2401,7 +2520,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   </div>
 
                   <div className="flex gap-2">
-                    <input
+                    <input aria-label="Nova categoria de notícia"
                       type="text"
                       value={newNewsCategory}
                       onChange={(e) => setNewNewsCategory(e.target.value)}
@@ -2419,7 +2538,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           }
                         }
                       }}
-                      placeholder="Nova categoria de notícia..."
+                      placeholder="Nova categoria de notícia…"
                       className="flex-1 text-xs p-2.5 bg-slate-50 border border-slate-300 rounded-xl"
                     />
                     <button
@@ -2451,7 +2570,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-sky-50 text-[#0a1e36] border border-sky-200 rounded-xl text-xs font-bold"
                       >
                         <span>{cat}</span>
-                        <button
+                        <button aria-label="Remover categoria"
                           type="button"
                           onClick={() =>
                             setDraftSiteSettings({
@@ -2482,7 +2601,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   </div>
 
                   <div className="flex gap-2">
-                    <input
+                    <input aria-label="Nova tag (ex: Futsal, MROSC, Sub-15)"
                       type="text"
                       value={newSiteTag}
                       onChange={(e) => setNewSiteTag(e.target.value)}
@@ -2500,7 +2619,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           }
                         }
                       }}
-                      placeholder="Nova tag (ex: Futsal, MROSC, Sub-15)..."
+                      placeholder="Nova tag (ex: Futsal, MROSC, Sub-15)…"
                       className="flex-1 text-xs p-2.5 bg-slate-50 border border-slate-300 rounded-xl"
                     />
                     <button
@@ -2533,7 +2652,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                       >
                         <span className="text-[#0284c7]">#</span>
                         <span>{tag}</span>
-                        <button
+                        <button aria-label="Remover tag"
                           type="button"
                           onClick={() =>
                             setDraftSiteSettings({
@@ -2564,11 +2683,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   </div>
 
                   <div className="flex gap-2">
-                    <input
+                    <input aria-label="Novo termo sugerido na busca"
                       type="text"
                       value={newSearchSuggestion}
                       onChange={(e) => setNewSearchSuggestion(e.target.value)}
-                      placeholder="Novo termo sugerido na busca..."
+                      placeholder="Novo termo sugerido na busca…"
                       className="flex-1 text-xs p-2.5 bg-slate-50 border border-slate-300 rounded-xl"
                     />
                     <button
@@ -2608,6 +2727,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                               ),
                             })
                           }
+                          aria-label={`Remover sugestão ${sug}`}
                           className="text-slate-400 hover:text-rose-600 font-black cursor-pointer"
                         >
                           ✕
@@ -2630,11 +2750,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   </div>
 
                   <div className="flex gap-2">
-                    <input
+                    <input aria-label="Novo assunto de atendimento"
                       type="text"
                       value={newContactSubject}
                       onChange={(e) => setNewContactSubject(e.target.value)}
-                      placeholder="Novo assunto de atendimento..."
+                      placeholder="Novo assunto de atendimento…"
                       className="flex-1 text-xs p-2.5 bg-slate-50 border border-slate-300 rounded-xl"
                     />
                     <button
@@ -2674,6 +2794,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                               ),
                             })
                           }
+                          aria-label={`Remover assunto ${subj}`}
                           className="text-slate-400 hover:text-rose-600 font-black cursor-pointer"
                         >
                           ✕
@@ -2701,11 +2822,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         Categorias de Eventos:
                       </span>
                       <div className="flex gap-2 mb-2">
-                        <input
+                        <input aria-label="Nova categoria de evento"
                           type="text"
                           value={newEventCategory}
                           onChange={(e) => setNewEventCategory(e.target.value)}
-                          placeholder="Nova categoria de evento..."
+                          placeholder="Nova categoria de evento…"
                           className="flex-1 text-xs p-2 bg-slate-50 border border-slate-300 rounded-lg"
                         />
                         <button
@@ -2721,6 +2842,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                               setNewEventCategory('');
                             }
                           }}
+                          aria-label="Adicionar categoria de evento"
                           className="px-3 py-1.5 bg-[#0284c7] text-white text-xs font-bold rounded-lg cursor-pointer"
                         >
                           +
@@ -2743,6 +2865,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                   ),
                                 })
                               }
+                              aria-label={`Remover categoria ${cat}`}
                               className="text-slate-400 hover:text-rose-600 font-black cursor-pointer"
                             >
                               ✕
@@ -2757,11 +2880,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         Categorias de Projetos:
                       </span>
                       <div className="flex gap-2 mb-2">
-                        <input
+                        <input aria-label="Nova categoria de projeto"
                           type="text"
                           value={newProjectCategory}
                           onChange={(e) => setNewProjectCategory(e.target.value)}
-                          placeholder="Nova categoria de projeto..."
+                          placeholder="Nova categoria de projeto…"
                           className="flex-1 text-xs p-2 bg-slate-50 border border-slate-300 rounded-lg"
                         />
                         <button
@@ -2777,6 +2900,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                               setNewProjectCategory('');
                             }
                           }}
+                          aria-label="Adicionar categoria de projeto"
                           className="px-3 py-1.5 bg-[#0284c7] text-white text-xs font-bold rounded-lg cursor-pointer"
                         >
                           +
@@ -2799,6 +2923,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                   ),
                                 })
                               }
+                              aria-label={`Remover categoria ${cat}`}
                               className="text-slate-400 hover:text-rose-600 font-black cursor-pointer"
                             >
                               ✕
@@ -2823,11 +2948,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   </div>
 
                   <div className="flex gap-2">
-                    <input
+                    <input aria-label="Nova categoria de álbum"
                       type="text"
                       value={newGalleryCategory}
                       onChange={(e) => setNewGalleryCategory(e.target.value)}
-                      placeholder="Nova categoria de álbum..."
+                      placeholder="Nova categoria de álbum…"
                       className="flex-1 text-xs p-2.5 bg-slate-50 border border-slate-300 rounded-xl"
                     />
                     <button
@@ -2866,6 +2991,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                               ),
                             })
                           }
+                          aria-label={`Remover categoria ${cat}`}
                           className="text-slate-400 hover:text-rose-600 font-black cursor-pointer"
                         >
                           ✕
@@ -2938,15 +3064,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                 <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row gap-3 items-center justify-between">
                   <div className="relative w-full sm:w-80">
                     <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="text"
+                    <input aria-label="Buscar notícia por título ou resumo"
+                      type="search"
                       value={newsSearch}
                       onChange={(e) => setNewsSearch(e.target.value)}
-                      placeholder="Buscar notícia por título ou resumo..."
+                      placeholder="Buscar notícia por título ou resumo…"
                       className="w-full text-xs pl-9 pr-8 py-2 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none"
                     />
                     {newsSearch && (
                       <button
+                        type="button"
+                        aria-label="Limpar busca"
                         onClick={() => setNewsSearch('')}
                         className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                       >
@@ -2956,10 +3084,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   </div>
 
                   <div className="flex items-center gap-2 w-full sm:w-auto">
-                    <label className="text-xs font-bold text-slate-600 whitespace-nowrap">
+                    <label htmlFor={`${fid}-f20`} className="text-xs font-bold text-slate-600 whitespace-nowrap">
                       Categoria:
                     </label>
-                    <select
+                    <select id={`${fid}-f20`}
                       value={newsCategoryFilter}
                       onChange={(e) => setNewsCategoryFilter(e.target.value)}
                       className="text-xs p-2 bg-slate-50 border border-slate-300 rounded-xl"
@@ -2982,13 +3110,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                 {/* News Create/Edit Modal with Block Editor, File Attachments & Live Preview */}
                 {(isCreatingNews || editingNews) && editingNews && (
                   <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
-                    <div className="bg-white rounded-2xl max-w-4xl w-full p-6 shadow-2xl border border-slate-200 space-y-5 max-h-[92vh] overflow-y-auto">
+                    <div
+                      ref={newsDialogRef}
+                      role="dialog"
+                      aria-modal="true"
+                      aria-labelledby={`${fid}-news-title`}
+                      className="bg-white rounded-2xl max-w-4xl w-full p-6 shadow-2xl border border-slate-200 space-y-5 max-h-[92vh] overflow-y-auto"
+                    >
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-3">
                         <div>
                           <span className="text-[10px] font-bold text-[#0284c7] uppercase">
                             Editor Editorial & Anexos
                           </span>
-                          <h3 className="font-black text-base text-[#0a1e36] uppercase">
+                          <h3 id={`${fid}-news-title`} className="font-black text-base text-[#0a1e36] uppercase">
                             {isCreatingNews ? 'Publicar Nova Matéria' : 'Editar Matéria'}
                           </h3>
                         </div>
@@ -2998,6 +3132,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                             <button
                               type="button"
                               onClick={() => setNewsEditorMode('blocks')}
+                              aria-pressed={newsEditorMode === 'blocks'}
                               className={`px-3 py-1 rounded-lg cursor-pointer transition-colors ${
                                 newsEditorMode === 'blocks'
                                   ? 'bg-[#0a1e36] text-white'
@@ -3009,6 +3144,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                             <button
                               type="button"
                               onClick={() => setNewsEditorMode('raw')}
+                              aria-pressed={newsEditorMode === 'raw'}
                               className={`px-3 py-1 rounded-lg cursor-pointer transition-colors ${
                                 newsEditorMode === 'raw'
                                   ? 'bg-[#0a1e36] text-white'
@@ -3020,6 +3156,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                             <button
                               type="button"
                               onClick={() => setNewsEditorMode('preview')}
+                              aria-pressed={newsEditorMode === 'preview'}
                               className={`px-3 py-1 rounded-lg cursor-pointer transition-colors ${
                                 newsEditorMode === 'preview'
                                   ? 'bg-[#0284c7] text-white'
@@ -3031,6 +3168,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           </div>
 
                           <button
+                            type="button"
+                            aria-label="Fechar"
                             onClick={() => {
                               setIsCreatingNews(false);
                               setEditingNews(null);
@@ -3063,7 +3202,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                             {editingNews.title || 'Título da Matéria'}
                           </h2>
                           <p className="text-sm font-semibold text-slate-600 border-b border-slate-200 pb-3">
-                            {editingNews.summary || 'Resumo da matéria...'}
+                            {editingNews.summary || 'Resumo da matéria…'}
                           </p>
                           <div className="space-y-3 text-sm text-slate-700 leading-relaxed">
                             {(editingNews.content || []).map((p, idx) => (
@@ -3094,25 +3233,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         <div className="space-y-4 text-xs">
                           <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
                             <div className="sm:col-span-8">
-                              <label className="block font-bold text-slate-700 uppercase mb-1">
+                              <label htmlFor={`${fid}-f21`} className="block font-bold text-slate-700 uppercase mb-1">
                                 Título da Matéria *
                               </label>
-                              <input
+                              <input id={`${fid}-f21`}
                                 type="text"
                                 value={editingNews.title}
                                 onChange={(e) =>
                                   setEditingNews({ ...editingNews, title: e.target.value })
                                 }
-                                placeholder="Digite o título principal da notícia..."
+                                placeholder="Digite o título principal da notícia…"
                                 className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg font-semibold"
                               />
                             </div>
 
                             <div className="sm:col-span-4">
-                              <label className="block font-bold text-slate-700 uppercase mb-1">
+                              <label htmlFor={`${fid}-f22`} className="block font-bold text-slate-700 uppercase mb-1">
                                 Data / Hora de Publicação
                               </label>
-                              <input
+                              <input id={`${fid}-f22`}
                                 type="text"
                                 value={editingNews.date}
                                 onChange={(e) =>
@@ -3125,10 +3264,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div>
-                              <label className="block font-bold text-slate-700 uppercase mb-1">
+                              <label htmlFor={`${fid}-f23`} className="block font-bold text-slate-700 uppercase mb-1">
                                 Categoria Editorial *
                               </label>
-                              <select
+                              <select id={`${fid}-f23`}
                                 value={editingNews.category}
                                 onChange={(e) =>
                                   setEditingNews({ ...editingNews, category: e.target.value })
@@ -3149,10 +3288,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                             </div>
 
                             <div>
-                              <label className="block font-bold text-slate-700 uppercase mb-1">
+                              <label htmlFor={`${fid}-f24`} className="block font-bold text-slate-700 uppercase mb-1">
                                 Autor / Fonte
                               </label>
-                              <input
+                              <input id={`${fid}-f24`}
                                 type="text"
                                 value={editingNews.author || ''}
                                 onChange={(e) =>
@@ -3166,15 +3305,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           {/* Tags Selection for Article */}
                           <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
                             <div className="flex items-center justify-between">
-                              <label className="block font-bold text-slate-700 uppercase">
+                              <span className="block font-bold text-slate-700 uppercase">
                                 Tags da Matéria ({(editingNews.tags || []).length} selecionadas)
-                              </label>
+                              </span>
                               <div className="flex items-center gap-1.5">
-                                <input
+                                <input aria-label="Nova tag"
                                   type="text"
                                   value={newArticleTagInput}
                                   onChange={(e) => setNewArticleTagInput(e.target.value)}
-                                  placeholder="Nova tag..."
+                                  placeholder="Nova tag…"
                                   className="text-xs px-2.5 py-1 bg-white border border-slate-300 rounded-lg w-36"
                                 />
                                 <button
@@ -3216,6 +3355,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                   <button
                                     key={tag}
                                     type="button"
+                                    aria-pressed={isSelected}
                                     onClick={() => {
                                       const currentTags = editingNews.tags || [];
                                       setEditingNews({
@@ -3239,16 +3379,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           </div>
 
                           <div>
-                            <label className="block font-bold text-slate-700 uppercase mb-1">
+                            <label htmlFor={`${fid}-f25`} className="block font-bold text-slate-700 uppercase mb-1">
                               Resumo / Linha Fina (Exibido nos cards da capa) *
                             </label>
-                            <textarea
+                            <textarea id={`${fid}-f25`}
                               rows={2}
                               value={editingNews.summary}
                               onChange={(e) =>
                                 setEditingNews({ ...editingNews, summary: e.target.value })
                               }
-                              placeholder="Breve síntese da notícia em 1 ou 2 frases..."
+                              placeholder="Breve síntese da notícia em 1 ou 2 frases…"
                               className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg"
                             />
                           </div>
@@ -3266,9 +3406,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           {/* Content Editor: Blocks Mode vs Raw Text Mode */}
                           <div className="space-y-2 pt-2 border-t border-slate-200">
                             <div className="flex flex-wrap items-center justify-between gap-2">
-                              <label className="block font-bold text-slate-700 uppercase">
+                              <span className="block font-bold text-slate-700 uppercase">
                                 Corpo da Matéria ({editingNews.content?.length || 0} parágrafos)
-                              </label>
+                              </span>
 
                               <div className="flex flex-wrap items-center gap-1.5">
                                 <button
@@ -3327,6 +3467,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                       §{pIdx + 1}
                                     </span>
                                     <textarea
+                                      aria-label={`Parágrafo ${pIdx + 1}`}
                                       rows={2}
                                       value={paragraph}
                                       onChange={(e) => {
@@ -3334,11 +3475,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                         updated[pIdx] = e.target.value;
                                         setEditingNews({ ...editingNews, content: updated });
                                       }}
-                                      placeholder={`Texto do parágrafo ${pIdx + 1}...`}
+                                      placeholder={`Texto do parágrafo ${pIdx + 1}…`}
                                       className="flex-1 p-2 bg-white border border-slate-300 rounded-lg text-xs leading-relaxed"
                                     />
                                     <div className="flex flex-col gap-1 shrink-0">
-                                      <button
+                                      <button aria-label="Mover para cima"
                                         type="button"
                                         disabled={pIdx === 0}
                                         onClick={() => {
@@ -3353,7 +3494,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                       >
                                         <ArrowUp className="w-3 h-3" />
                                       </button>
-                                      <button
+                                      <button aria-label="Mover para baixo"
                                         type="button"
                                         disabled={pIdx === (editingNews.content?.length || 1) - 1}
                                         onClick={() => {
@@ -3368,7 +3509,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                       >
                                         <ArrowDown className="w-3 h-3" />
                                       </button>
-                                      <button
+                                      <button aria-label="Remover parágrafo"
                                         type="button"
                                         onClick={() => {
                                           const updated = (editingNews.content || []).filter(
@@ -3390,6 +3531,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                               </div>
                             ) : (
                               <textarea
+                                aria-label="Corpo da matéria (texto livre)"
                                 rows={7}
                                 value={editingNews.content?.join('\n\n') || ''}
                                 onChange={(e) =>
@@ -3398,7 +3540,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                     content: e.target.value.split('\n\n'),
                                   })
                                 }
-                                placeholder="Separe os parágrafos com uma linha em branco (Enter duas vezes)..."
+                                placeholder="Separe os parágrafos com uma linha em branco (Enter duas vezes)…"
                                 className="w-full p-3 bg-slate-50 border border-slate-300 rounded-lg font-mono text-xs leading-relaxed"
                               />
                             )}
@@ -3497,7 +3639,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                             <Edit3 className="w-3.5 h-3.5" />
                             <span>Editar</span>
                           </button>
-                          <button
+                          <button aria-label="Duplicar notícia (salva ao confirmar no modal)"
                             onClick={() => {
                               setIsCreatingNews(true);
                               setNewsEditorMode('blocks');
@@ -3514,7 +3656,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           >
                             <Copy className="w-3.5 h-3.5" />
                           </button>
-                          <button
+                          <button aria-label="Excluir notícia"
                             onClick={() => {
                               requestPinProtectedAction(() => {
                                 setDraftNews((prev) => prev.filter((item) => item.id !== article.id));
@@ -3600,11 +3742,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
                   <div className="relative flex-1 max-w-md">
                     <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="text"
+                    <input aria-label="Buscar por nome, categoria ou descrição"
+                      type="search"
                       value={sponsorSearch}
                       onChange={(e) => setSponsorSearch(e.target.value)}
-                      placeholder="Buscar por nome, categoria ou descrição..."
+                      placeholder="Buscar por nome, categoria ou descrição…"
                       className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-sky-500 focus:outline-none"
                     />
                   </div>
@@ -3614,7 +3756,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                     {(['all', 'master', 'ouro', 'prata', 'bronze', 'apoio'] as const).map((tierKey) => (
                       <button
                         key={tierKey}
+                        type="button"
                         onClick={() => setSponsorTierFilter(tierKey)}
+                        aria-pressed={sponsorTierFilter === tierKey}
                         className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
                           sponsorTierFilter === tierKey
                             ? 'bg-[#0a1e36] text-white shadow-xs'
@@ -3640,16 +3784,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                 {/* MODAL: ADD / EDIT SPONSOR */}
                 {editingSponsor && (
                   <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-2xs flex items-center justify-center p-4 overflow-y-auto">
-                    <div className="bg-white rounded-3xl max-w-xl w-full p-6 sm:p-8 space-y-5 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
+                    <div
+                      ref={sponsorDialogRef}
+                      role="dialog"
+                      aria-modal="true"
+                      aria-labelledby={`${fid}-sponsor-title`}
+                      className="bg-white rounded-3xl max-w-xl w-full p-6 sm:p-8 space-y-5 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 duration-150"
+                    >
                       <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                         <div className="flex items-center gap-2">
                           <HeartHandshake className="w-5 h-5 text-[#0284c7]" />
-                          <h3 className="font-extrabold text-base text-slate-900">
+                          <h3 id={`${fid}-sponsor-title`} className="font-extrabold text-base text-slate-900">
                             {isCreatingSponsor ? 'Novo Patrocinador / Parceiro' : 'Editar Patrocinador'}
                           </h3>
                         </div>
                         <button
                           type="button"
+                          aria-label="Fechar"
                           onClick={() => {
                             setEditingSponsor(null);
                             setIsCreatingSponsor(false);
@@ -3664,10 +3815,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         {/* Name & Category */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div>
-                            <label className="block font-bold text-slate-700 uppercase mb-1">
+                            <label htmlFor={`${fid}-f26`} className="block font-bold text-slate-700 uppercase mb-1">
                               Nome da Empresa / Parceiro *
                             </label>
-                            <input
+                            <input id={`${fid}-f26`}
                               type="text"
                               required
                               value={editingSponsor.name}
@@ -3680,10 +3831,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           </div>
 
                           <div>
-                            <label className="block font-bold text-slate-700 uppercase mb-1">
+                            <label htmlFor={`${fid}-f27`} className="block font-bold text-slate-700 uppercase mb-1">
                               Segmento / Categoria *
                             </label>
-                            <input
+                            <input id={`${fid}-f27`}
                               type="text"
                               value={editingSponsor.category}
                               onChange={(e) =>
@@ -3698,10 +3849,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         {/* Tier & TierLabel */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div>
-                            <label className="block font-bold text-slate-700 uppercase mb-1">
+                            <label htmlFor={`${fid}-f28`} className="block font-bold text-slate-700 uppercase mb-1">
                               Nível de Patrocínio *
                             </label>
-                            <select
+                            <select id={`${fid}-f28`}
                               value={editingSponsor.tier}
                               onChange={(e) => {
                                 const newTier = e.target.value as SponsorTier;
@@ -3732,10 +3883,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           </div>
 
                           <div>
-                            <label className="block font-bold text-slate-700 uppercase mb-1">
+                            <label htmlFor={`${fid}-f29`} className="block font-bold text-slate-700 uppercase mb-1">
                               Título do Nível (Exibição Pública)
                             </label>
-                            <input
+                            <input id={`${fid}-f29`}
                               type="text"
                               value={editingSponsor.tierLabel}
                               onChange={(e) =>
@@ -3760,11 +3911,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         {/* Website URL & Order */}
                         <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
                           <div className="sm:col-span-8">
-                            <label className="block font-bold text-slate-700 uppercase mb-1">
+                            <label htmlFor={`${fid}-f30`} className="block font-bold text-slate-700 uppercase mb-1">
                               Link do Site ou Rede Social Oficial
                             </label>
-                            <input
+                            <input id={`${fid}-f30`}
                               type="url"
+                              spellCheck={false}
                               value={editingSponsor.websiteUrl || ''}
                               onChange={(e) =>
                                 setEditingSponsor({ ...editingSponsor, websiteUrl: e.target.value })
@@ -3775,10 +3927,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           </div>
 
                           <div className="sm:col-span-4">
-                            <label className="block font-bold text-slate-700 uppercase mb-1">
+                            <label htmlFor={`${fid}-f31`} className="block font-bold text-slate-700 uppercase mb-1">
                               Ordem de Exibição
                             </label>
-                            <input
+                            <input id={`${fid}-f31`}
                               type="number"
                               min={1}
                               max={99}
@@ -3796,16 +3948,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
                         {/* Description */}
                         <div>
-                          <label className="block font-bold text-slate-700 uppercase mb-1">
+                          <label htmlFor={`${fid}-f32`} className="block font-bold text-slate-700 uppercase mb-1">
                             Descrição da Parceria ou Mensagem Institucional
                           </label>
-                          <textarea
+                          <textarea id={`${fid}-f32`}
                             rows={3}
                             value={editingSponsor.description}
                             onChange={(e) =>
                               setEditingSponsor({ ...editingSponsor, description: e.target.value })
                             }
-                            placeholder="Descreva o apoio oferecido, impacto social ou contrapartida institucional..."
+                            placeholder="Descreva o apoio oferecido, impacto social ou contrapartida institucional…"
                             className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg leading-relaxed"
                           />
                         </div>
@@ -3813,12 +3965,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         {/* Active Switch */}
                         <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between">
                           <div>
-                            <span className="font-bold text-slate-800 block">Exibir no Site Público</span>
-                            <span className="text-[11px] text-slate-500">
+                            <label htmlFor={`${fid}-sponsor-active`} className="font-bold text-slate-800 block">Exibir no Site Público</label>
+                            <span id={`${fid}-sponsor-active-hint`} className="text-[11px] text-slate-500">
                               Se desmarcado, o patrocinador fica salvo no painel sem aparecer aos visitantes.
                             </span>
                           </div>
                           <input
+                            id={`${fid}-sponsor-active`}
+                            aria-describedby={`${fid}-sponsor-active-hint`}
                             type="checkbox"
                             checked={editingSponsor.active}
                             onChange={(e) =>
@@ -3927,6 +4081,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                 : 'bg-slate-200 text-slate-600'
                             }`}
                             title="Alternar visibilidade pública"
+                            aria-pressed={spon.active}
                           >
                             {spon.active ? '● Ativo' : '○ Inativo'}
                           </button>
@@ -3964,7 +4119,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
                       <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
                         <div className="flex items-center gap-1">
-                          <button
+                          <button aria-label="Subir na ordem de exibição"
                             type="button"
                             disabled={index === 0}
                             onClick={() => {
@@ -3976,7 +4131,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           >
                             <ArrowUp className="w-3.5 h-3.5" />
                           </button>
-                          <button
+                          <button aria-label="Descer na ordem de exibição"
                             type="button"
                             disabled={index === filteredSponsors.length - 1}
                             onClick={() => {
@@ -3992,7 +4147,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
                         <div className="flex items-center gap-1">
                           {spon.websiteUrl && (
-                            <a
+                            <a aria-label="Acessar site oficial"
                               href={spon.websiteUrl}
                               target="_blank"
                               rel="noopener noreferrer"
@@ -4003,7 +4158,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                             </a>
                           )}
 
-                          <button
+                          <button aria-label="Duplicar patrocinador"
                             type="button"
                             onClick={() => {
                               const duplicated: Sponsor = {
@@ -4021,7 +4176,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                             <Copy className="w-3.5 h-3.5" />
                           </button>
 
-                          <button
+                          <button aria-label="Editar patrocinador"
                             type="button"
                             onClick={() => {
                               setEditingSponsor({ ...spon });
@@ -4033,7 +4188,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                             <Edit3 className="w-3.5 h-3.5" />
                           </button>
 
-                          <button
+                          <button aria-label="Excluir patrocinador"
                             type="button"
                             onClick={() => {
                               requestPinProtectedAction(() => {
@@ -4122,18 +4277,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                 <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row gap-3 items-center justify-between">
                   <div className="relative w-full sm:w-80">
                     <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="text"
+                    <input aria-label="Buscar evento por título ou local"
+                      type="search"
                       value={eventSearch}
                       onChange={(e) => setEventSearch(e.target.value)}
-                      placeholder="Buscar evento por título ou local..."
+                      placeholder="Buscar evento por título ou local…"
                       className="w-full text-xs pl-9 pr-8 py-2 bg-slate-50 border border-slate-300 rounded-xl"
                     />
                   </div>
 
                   <div className="flex items-center gap-2 w-full sm:w-auto">
-                    <label className="text-xs font-bold text-slate-600">Categoria:</label>
-                    <select
+                    <label htmlFor={`${fid}-f33`} className="text-xs font-bold text-slate-600">Categoria:</label>
+                    <select id={`${fid}-f33`}
                       value={eventCategoryFilter}
                       onChange={(e) => setEventCategoryFilter(e.target.value)}
                       className="text-xs p-2 bg-slate-50 border border-slate-300 rounded-xl"
@@ -4149,17 +4304,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                 {/* Event Create / Edit Modal */}
                 {(isCreatingEvent || editingEvent) && editingEvent && (
                   <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
-                    <div className="bg-white rounded-2xl max-w-3xl w-full p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[92vh] overflow-y-auto">
+                    <div
+                      ref={eventDialogRef}
+                      role="dialog"
+                      aria-modal="true"
+                      aria-labelledby={`${fid}-event-title`}
+                      className="bg-white rounded-2xl max-w-3xl w-full p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[92vh] overflow-y-auto"
+                    >
                       <div className="flex items-center justify-between border-b pb-3">
                         <div>
                           <span className="text-[10px] font-bold text-[#0284c7] uppercase">
                             Gestão da Agenda Esportiva
                           </span>
-                          <h3 className="font-black text-base text-[#0a1e36] uppercase">
+                          <h3 id={`${fid}-event-title`} className="font-black text-base text-[#0a1e36] uppercase">
                             {isCreatingEvent ? 'Cadastrar Novo Evento' : 'Editar Evento / Atividade'}
                           </h3>
                         </div>
                         <button
+                          type="button"
+                          aria-label="Fechar"
                           onClick={() => {
                             setIsCreatingEvent(false);
                             setEditingEvent(null);
@@ -4173,10 +4336,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                       <div className="space-y-4 text-xs">
                         <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
                           <div className="sm:col-span-8">
-                            <label className="block font-bold text-slate-700 uppercase mb-1">
+                            <label htmlFor={`${fid}-f34`} className="block font-bold text-slate-700 uppercase mb-1">
                               Título do Evento / Atividade *
                             </label>
-                            <input
+                            <input id={`${fid}-f34`}
                               type="text"
                               value={editingEvent.title}
                               onChange={(e) =>
@@ -4187,10 +4350,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           </div>
 
                           <div className="sm:col-span-4">
-                            <label className="block font-bold text-slate-700 uppercase mb-1">
+                            <label htmlFor={`${fid}-f35`} className="block font-bold text-slate-700 uppercase mb-1">
                               Status das Inscrições
                             </label>
-                            <select
+                            <select id={`${fid}-f35`}
                               value={editingEvent.status}
                               onChange={(e) =>
                                 setEditingEvent({
@@ -4210,10 +4373,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                           <div>
-                            <label className="block font-bold text-slate-700 uppercase mb-1">
+                            <label htmlFor={`${fid}-f36`} className="block font-bold text-slate-700 uppercase mb-1">
                               Categoria *
                             </label>
-                            <select
+                            <select id={`${fid}-f36`}
                               value={editingEvent.category}
                               onChange={(e) => {
                                 const val = e.target.value as EventCategory;
@@ -4238,10 +4401,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           </div>
 
                           <div>
-                            <label className="block font-bold text-slate-700 uppercase mb-1">
+                            <label htmlFor={`${fid}-f37`} className="block font-bold text-slate-700 uppercase mb-1">
                               Data do Evento *
                             </label>
-                            <input
+                            <input id={`${fid}-f37`}
                               type="date"
                               value={editingEvent.date}
                               onChange={(e) => {
@@ -4260,10 +4423,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           </div>
 
                           <div>
-                            <label className="block font-bold text-slate-700 uppercase mb-1">
+                            <label htmlFor={`${fid}-f38`} className="block font-bold text-slate-700 uppercase mb-1">
                               Horário *
                             </label>
-                            <input
+                            <input id={`${fid}-f38`}
                               type="text"
                               value={editingEvent.time}
                               onChange={(e) =>
@@ -4277,10 +4440,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div>
-                            <label className="block font-bold text-slate-700 uppercase mb-1">
+                            <label htmlFor={`${fid}-f39`} className="block font-bold text-slate-700 uppercase mb-1">
                               Local / Polo Esportivo *
                             </label>
-                            <input
+                            <input id={`${fid}-f39`}
                               type="text"
                               value={editingEvent.location}
                               onChange={(e) =>
@@ -4291,10 +4454,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           </div>
 
                           <div>
-                            <label className="block font-bold text-slate-700 uppercase mb-1">
+                            <label htmlFor={`${fid}-f40`} className="block font-bold text-slate-700 uppercase mb-1">
                               Endereço Completo
                             </label>
-                            <input
+                            <input id={`${fid}-f40`}
                               type="text"
                               value={editingEvent.address}
                               onChange={(e) =>
@@ -4307,10 +4470,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
                         <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                           <div className="sm:col-span-2">
-                            <label className="block font-bold text-slate-700 uppercase mb-1">
+                            <label htmlFor={`${fid}-f41`} className="block font-bold text-slate-700 uppercase mb-1">
                               Público-Alvo
                             </label>
-                            <input
+                            <input id={`${fid}-f41`}
                               type="text"
                               value={editingEvent.targetAudience}
                               onChange={(e) =>
@@ -4324,10 +4487,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           </div>
 
                           <div>
-                            <label className="block font-bold text-slate-700 uppercase mb-1">
+                            <label htmlFor={`${fid}-f42`} className="block font-bold text-slate-700 uppercase mb-1">
                               Capacidade Total
                             </label>
-                            <input
+                            <input id={`${fid}-f42`}
                               type="number"
                               value={editingEvent.capacity}
                               onChange={(e) => {
@@ -4345,10 +4508,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           </div>
 
                           <div>
-                            <label className="block font-bold text-slate-700 uppercase mb-1">
+                            <label htmlFor={`${fid}-f43`} className="block font-bold text-slate-700 uppercase mb-1">
                               Vagas Disponíveis
                             </label>
-                            <input
+                            <input id={`${fid}-f43`}
                               type="number"
                               value={editingEvent.availableSpots}
                               max={editingEvent.capacity}
@@ -4368,10 +4531,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div>
-                            <label className="block font-bold text-slate-700 uppercase mb-1">
+                            <label htmlFor={`${fid}-f44`} className="block font-bold text-slate-700 uppercase mb-1">
                               Coordenação / Responsável Técnico
                             </label>
-                            <input
+                            <input id={`${fid}-f44`}
                               type="text"
                               value={editingEvent.coordinator}
                               onChange={(e) =>
@@ -4382,10 +4545,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           </div>
 
                           <div>
-                            <label className="block font-bold text-slate-700 uppercase mb-1">
+                            <label htmlFor={`${fid}-f45`} className="block font-bold text-slate-700 uppercase mb-1">
                               Data Formatada Exibida
                             </label>
-                            <input
+                            <input id={`${fid}-f45`}
                               type="text"
                               value={editingEvent.formattedDate}
                               onChange={(e) =>
@@ -4400,10 +4563,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         </div>
 
                         <div>
-                          <label className="block font-bold text-slate-700 uppercase mb-1">
+                          <label htmlFor={`${fid}-f46`} className="block font-bold text-slate-700 uppercase mb-1">
                             Descrição Completa da Atividade *
                           </label>
-                          <textarea
+                          <textarea id={`${fid}-f46`}
                             rows={3}
                             value={editingEvent.description}
                             onChange={(e) =>
@@ -4416,11 +4579,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         {/* Schedule Highlights & Prerequisites Dynamic Lists */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-200">
                           <div className="space-y-2">
-                            <label className="block font-bold text-slate-700 uppercase">
+                            <label htmlFor={`${fid}-event-highlight`} className="block font-bold text-slate-700 uppercase">
                               Destaques da Programação
                             </label>
                             <div className="flex gap-1.5">
                               <input
+                                id={`${fid}-event-highlight`}
                                 type="text"
                                 value={newHighlightText}
                                 onChange={(e) => setNewHighlightText(e.target.value)}
@@ -4438,7 +4602,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                     setNewHighlightText('');
                                   }
                                 }}
-                                placeholder="Ex: Aula prática de fundamentos..."
+                                placeholder="Ex: Aula prática de fundamentos…"
                                 className="flex-1 p-2 bg-slate-50 border border-slate-300 rounded-lg"
                               />
                               <button
@@ -4454,6 +4618,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                   });
                                   setNewHighlightText('');
                                 }}
+                                aria-label="Adicionar destaque da programação"
                                 className="px-3 py-2 bg-[#0a1e36] text-white font-bold rounded-lg cursor-pointer"
                               >
                                 +
@@ -4476,6 +4641,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                         ).filter((_, i) => i !== idx),
                                       })
                                     }
+                                    aria-label={`Remover destaque: ${item}`}
                                     className="text-rose-500 hover:text-rose-700 cursor-pointer"
                                   >
                                     ✕
@@ -4486,11 +4652,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           </div>
 
                           <div className="space-y-2">
-                            <label className="block font-bold text-slate-700 uppercase">
+                            <label htmlFor={`${fid}-event-prereq`} className="block font-bold text-slate-700 uppercase">
                               Pré-requisitos / Orientações
                             </label>
                             <div className="flex gap-1.5">
                               <input
+                                id={`${fid}-event-prereq`}
                                 type="text"
                                 value={newPrereqText}
                                 onChange={(e) => setNewPrereqText(e.target.value)}
@@ -4508,7 +4675,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                     setNewPrereqText('');
                                   }
                                 }}
-                                placeholder="Ex: Traje esportivo e documento..."
+                                placeholder="Ex: Traje esportivo e documento…"
                                 className="flex-1 p-2 bg-slate-50 border border-slate-300 rounded-lg"
                               />
                               <button
@@ -4524,6 +4691,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                   });
                                   setNewPrereqText('');
                                 }}
+                                aria-label="Adicionar pré-requisito"
                                 className="px-3 py-2 bg-[#0a1e36] text-white font-bold rounded-lg cursor-pointer"
                               >
                                 +
@@ -4546,6 +4714,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                         ),
                                       })
                                     }
+                                    aria-label={`Remover pré-requisito: ${item}`}
                                     className="text-rose-500 hover:text-rose-700 cursor-pointer"
                                   >
                                     ✕
@@ -4650,7 +4819,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                               <Edit3 className="w-3.5 h-3.5" />
                               <span>Editar</span>
                             </button>
-                            <button
+                            <button aria-label="Duplicar evento (salva ao confirmar no modal)"
                               onClick={() => {
                                 setIsCreatingEvent(true);
                                 setEditingEvent({
@@ -4669,7 +4838,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                             >
                               <Copy className="w-3.5 h-3.5" />
                             </button>
-                            <button
+                            <button aria-label="Excluir"
                               onClick={() => {
                                 requestPinProtectedAction(() => {
                                   setDraftEvents((prev) => prev.filter((item) => item.id !== ev.id));
@@ -4798,7 +4967,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           <Edit3 className="w-3.5 h-3.5" />
                           <span>Editar</span>
                         </button>
-                        <button
+                        <button aria-label="Duplicar projeto (salva ao confirmar no modal)"
                           onClick={() => {
                             setIsCreatingProject(true);
                             setEditingProject({
@@ -4813,7 +4982,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         >
                           <Copy className="w-3.5 h-3.5" />
                         </button>
-                        <button
+                        <button aria-label="Excluir projeto"
                           onClick={() => {
                             requestPinProtectedAction(() => {
                               setDraftProjects((prev) => prev.filter((p) => p.id !== proj.id));
@@ -4837,19 +5006,27 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
               {/* Project Create / Edit Modal */}
               {(isCreatingProject || editingProject) && editingProject && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
-                  <div className="bg-white rounded-2xl max-w-3xl w-full p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[92vh] overflow-y-auto">
+                  <div
+                    ref={projectDialogRef}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby={`${fid}-project-title`}
+                    className="bg-white rounded-2xl max-w-3xl w-full p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[92vh] overflow-y-auto"
+                  >
                     <div className="flex items-center justify-between border-b pb-3">
                       <div>
                         <span className="text-[10px] font-bold text-[#0284c7] uppercase">
                           Gestão de Projetos & Modalidades
                         </span>
-                        <h3 className="font-black text-base text-[#0a1e36] uppercase">
+                        <h3 id={`${fid}-project-title`} className="font-black text-base text-[#0a1e36] uppercase">
                           {isCreatingProject
                             ? 'Cadastrar Novo Projeto Esportivo'
                             : `Editar Projeto: ${editingProject.name}`}
                         </h3>
                       </div>
                       <button
+                        type="button"
+                        aria-label="Fechar"
                         onClick={() => {
                           setIsCreatingProject(false);
                           setEditingProject(null);
@@ -4863,10 +5040,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                     <div className="space-y-4 text-xs">
                       <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
                         <div className="sm:col-span-8">
-                          <label className="block font-bold text-slate-700 uppercase mb-1">
+                          <label htmlFor={`${fid}-f47`} className="block font-bold text-slate-700 uppercase mb-1">
                             Nome do Projeto *
                           </label>
-                          <input
+                          <input id={`${fid}-f47`}
                             type="text"
                             value={editingProject.name}
                             onChange={(e) =>
@@ -4877,10 +5054,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         </div>
 
                         <div className="sm:col-span-4">
-                          <label className="block font-bold text-slate-700 uppercase mb-1">
+                          <label htmlFor={`${fid}-f48`} className="block font-bold text-slate-700 uppercase mb-1">
                             Eixo / Categoria *
                           </label>
-                          <select
+                          <select id={`${fid}-f48`}
                             value={editingProject.category}
                             onChange={(e) =>
                               setEditingProject({
@@ -4901,10 +5078,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
-                          <label className="block font-bold text-slate-700 uppercase mb-1">
+                          <label htmlFor={`${fid}-f49`} className="block font-bold text-slate-700 uppercase mb-1">
                             Público-Alvo / Faixa Etária
                           </label>
-                          <input
+                          <input id={`${fid}-f49`}
                             type="text"
                             value={editingProject.targetAudience}
                             onChange={(e) =>
@@ -4918,10 +5095,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         </div>
 
                         <div>
-                          <label className="block font-bold text-slate-700 uppercase mb-1">
+                          <label htmlFor={`${fid}-f50`} className="block font-bold text-slate-700 uppercase mb-1">
                             Dias e Horários das Turmas
                           </label>
-                          <input
+                          <input id={`${fid}-f50`}
                             type="text"
                             value={editingProject.schedule}
                             onChange={(e) =>
@@ -4934,10 +5111,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <div>
-                          <label className="block font-bold text-slate-700 uppercase mb-1">
+                          <label htmlFor={`${fid}-f51`} className="block font-bold text-slate-700 uppercase mb-1">
                             Local / Polo de Atendimento
                           </label>
-                          <input
+                          <input id={`${fid}-f51`}
                             type="text"
                             value={editingProject.location}
                             onChange={(e) =>
@@ -4948,10 +5125,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         </div>
 
                         <div>
-                          <label className="block font-bold text-slate-700 uppercase mb-1">
+                          <label htmlFor={`${fid}-f52`} className="block font-bold text-slate-700 uppercase mb-1">
                             Coordenação Técnica
                           </label>
-                          <input
+                          <input id={`${fid}-f52`}
                             type="text"
                             value={editingProject.coordinator}
                             onChange={(e) =>
@@ -4965,10 +5142,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         </div>
 
                         <div>
-                          <label className="block font-bold text-slate-700 uppercase mb-1">
+                          <label htmlFor={`${fid}-f53`} className="block font-bold text-slate-700 uppercase mb-1">
                             Fonte de Recursos / Fomento
                           </label>
-                          <input
+                          <input id={`${fid}-f53`}
                             type="text"
                             value={editingProject.fundingSource}
                             onChange={(e) =>
@@ -4983,10 +5160,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                       </div>
 
                       <div>
-                        <label className="block font-bold text-slate-700 uppercase mb-1">
+                        <label htmlFor={`${fid}-f54`} className="block font-bold text-slate-700 uppercase mb-1">
                           Descrição Pedagógica e Metodológica
                         </label>
-                        <textarea
+                        <textarea id={`${fid}-f54`}
                           rows={3}
                           value={editingProject.description}
                           onChange={(e) =>
@@ -5142,7 +5319,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           <Edit3 className="w-3.5 h-3.5" />
                           <span>Editar Fotos ({album.albumPhotos.length})</span>
                         </button>
-                        <button
+                        <button aria-label="Excluir álbum"
                           onClick={() => {
                             requestPinProtectedAction(() => {
                               setDraftAlbums((prev) => prev.filter((a) => a.id !== album.id));
@@ -5166,17 +5343,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
               {/* Create / Edit Album Modal */}
               {(isCreatingAlbum || editingAlbum) && editingAlbum && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
-                  <div className="bg-white rounded-2xl max-w-4xl w-full p-6 shadow-2xl border border-slate-200 space-y-5 max-h-[92vh] overflow-y-auto">
+                  <div
+                    ref={albumDialogRef}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby={`${fid}-album-title`}
+                    className="bg-white rounded-2xl max-w-4xl w-full p-6 shadow-2xl border border-slate-200 space-y-5 max-h-[92vh] overflow-y-auto"
+                  >
                     <div className="flex items-center justify-between border-b pb-3">
                       <div>
                         <span className="text-[10px] font-bold text-[#0284c7] uppercase">
                           Memória Esportiva & Lightbox
                         </span>
-                        <h3 className="font-black text-base text-[#0a1e36] uppercase">
+                        <h3 id={`${fid}-album-title`} className="font-black text-base text-[#0a1e36] uppercase">
                           {isCreatingAlbum ? 'Criar Novo Álbum de Fotos' : 'Editar Álbum e Fotos'}
                         </h3>
                       </div>
                       <button
+                        type="button"
+                        aria-label="Fechar"
                         onClick={() => {
                           setIsCreatingAlbum(false);
                           setEditingAlbum(null);
@@ -5190,10 +5375,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                     <div className="space-y-4 text-xs">
                       <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
                         <div className="sm:col-span-7">
-                          <label className="block font-bold text-slate-700 uppercase mb-1">
+                          <label htmlFor={`${fid}-f55`} className="block font-bold text-slate-700 uppercase mb-1">
                             Título do Álbum *
                           </label>
-                          <input
+                          <input id={`${fid}-f55`}
                             type="text"
                             value={editingAlbum.title}
                             onChange={(e) =>
@@ -5205,10 +5390,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         </div>
 
                         <div className="sm:col-span-5">
-                          <label className="block font-bold text-slate-700 uppercase mb-1">
+                          <label htmlFor={`${fid}-f56`} className="block font-bold text-slate-700 uppercase mb-1">
                             Categoria da Galeria *
                           </label>
-                          <select
+                          <select id={`${fid}-f56`}
                             value={editingAlbum.category}
                             onChange={(e) =>
                               setEditingAlbum({
@@ -5228,10 +5413,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
-                          <label className="block font-bold text-slate-700 uppercase mb-1">
+                          <label htmlFor={`${fid}-f57`} className="block font-bold text-slate-700 uppercase mb-1">
                             Mês / Ano de Realização
                           </label>
-                          <input
+                          <input id={`${fid}-f57`}
                             type="text"
                             value={editingAlbum.date}
                             onChange={(e) =>
@@ -5243,10 +5428,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         </div>
 
                         <div>
-                          <label className="block font-bold text-slate-700 uppercase mb-1">
+                          <label htmlFor={`${fid}-f58`} className="block font-bold text-slate-700 uppercase mb-1">
                             Local do Evento
                           </label>
-                          <input
+                          <input id={`${fid}-f58`}
                             type="text"
                             value={editingAlbum.location}
                             onChange={(e) =>
@@ -5259,10 +5444,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                       </div>
 
                       <div>
-                        <label className="block font-bold text-slate-700 uppercase mb-1">
+                        <label htmlFor={`${fid}-f59`} className="block font-bold text-slate-700 uppercase mb-1">
                           Descrição / Resumo do Álbum
                         </label>
-                        <textarea
+                        <textarea id={`${fid}-f59`}
                           rows={2}
                           value={editingAlbum.caption}
                           onChange={(e) =>
@@ -5293,11 +5478,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                             </span>
                           </div>
 
-                          <label className="px-4 py-2 bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-bold rounded-xl cursor-pointer inline-flex items-center gap-1.5 shadow-xs self-start sm:self-auto">
+                          <label className="px-4 py-2 bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-bold rounded-xl cursor-pointer inline-flex items-center gap-1.5 shadow-xs self-start sm:self-auto focus-within:ring-2 focus-within:ring-sky-500 focus-within:ring-offset-1">
                             <Upload className="w-3.5 h-3.5" />
                             <span>
                               {isUploadingAlbumPhotos
-                                ? 'Processando fotos...'
+                                ? 'Processando fotos…'
                                 : '+ Anexar Fotos do Computador'}
                             </span>
                             <input
@@ -5305,7 +5490,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                               multiple
                               accept="image/*"
                               onChange={handleGalleryPhotosUpload}
-                              className="hidden"
+                              className="sr-only"
                               disabled={isUploadingAlbumPhotos}
                             />
                           </label>
@@ -5314,26 +5499,27 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         {/* Add Photo via URL */}
                         <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-end bg-white p-3 rounded-lg border border-slate-200">
                           <div className="sm:col-span-5">
-                            <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
+                            <label htmlFor={`${fid}-f60`} className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
                               Adicionar Foto por URL
                             </label>
-                            <input
+                            <input id={`${fid}-f60`}
                               type="url"
+                              spellCheck={false}
                               value={newPhotoUrl}
                               onChange={(e) => setNewPhotoUrl(e.target.value)}
-                              placeholder="https://..."
+                              placeholder="https://…"
                               className="w-full p-2 bg-slate-50 border border-slate-300 rounded-md"
                             />
                           </div>
                           <div className="sm:col-span-5">
-                            <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
+                            <label htmlFor={`${fid}-f61`} className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
                               Legenda da Foto
                             </label>
-                            <input
+                            <input id={`${fid}-f61`}
                               type="text"
                               value={newPhotoCaption}
                               onChange={(e) => setNewPhotoCaption(e.target.value)}
-                              placeholder="Descrição do momento registrado..."
+                              placeholder="Descrição do momento registrado…"
                               className="w-full p-2 bg-slate-50 border border-slate-300 rounded-md"
                             />
                           </div>
@@ -5381,7 +5567,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                   className="w-20 h-16 rounded-lg object-cover bg-slate-100 shrink-0 border border-slate-200"
                                 />
                                 <div className="flex-1 min-w-0 space-y-1.5">
-                                  <input
+                                  <input aria-label={`Legenda da foto ${pIdx + 1}`}
                                     type="text"
                                     value={photo.caption}
                                     onChange={(e) => {
@@ -5392,7 +5578,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                       };
                                       setEditingAlbum({ ...editingAlbum, albumPhotos: updated });
                                     }}
-                                    placeholder="Legenda da foto..."
+                                    placeholder="Legenda da foto…"
                                     className="w-full p-1.5 text-[11px] bg-slate-50 border border-slate-200 rounded"
                                   />
                                   <div className="flex items-center justify-between">
@@ -5419,6 +5605,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                         );
                                         setEditingAlbum({ ...editingAlbum, albumPhotos: updated });
                                       }}
+                                      aria-label={`Remover foto ${pIdx + 1}`}
                                       className="text-rose-600 hover:underline text-[10px] font-bold cursor-pointer"
                                     >
                                       Remover
@@ -5512,18 +5699,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                 <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row gap-3 items-center justify-between">
                   <div className="relative w-full sm:w-80">
                     <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="text"
+                    <input aria-label="Buscar documento, ata ou certidão"
+                      type="search"
                       value={docSearch}
                       onChange={(e) => setDocSearch(e.target.value)}
-                      placeholder="Buscar documento, ata ou certidão..."
+                      placeholder="Buscar documento, ata ou certidão…"
                       className="w-full text-xs pl-9 pr-8 py-2 bg-slate-50 border border-slate-300 rounded-xl"
                     />
                   </div>
 
                   <div className="flex items-center gap-2 w-full sm:w-auto">
-                    <label className="text-xs font-bold text-slate-600">Categoria:</label>
-                    <select
+                    <label htmlFor={`${fid}-f62`} className="text-xs font-bold text-slate-600">Categoria:</label>
+                    <select id={`${fid}-f62`}
                       value={docCategoryFilter}
                       onChange={(e) => setDocCategoryFilter(e.target.value)}
                       className="text-xs p-2 bg-slate-50 border border-slate-300 rounded-xl"
@@ -5543,17 +5730,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                 {/* Doc Modal with Direct File Dropzone */}
                 {(isCreatingDoc || editingDoc) && editingDoc && (
                   <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
-                    <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[92vh] overflow-y-auto">
+                    <div
+                      ref={docDialogRef}
+                      role="dialog"
+                      aria-modal="true"
+                      aria-labelledby={`${fid}-doc-title`}
+                      className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[92vh] overflow-y-auto"
+                    >
                       <div className="flex items-center justify-between border-b pb-3">
                         <div>
                           <span className="text-[10px] font-bold text-[#0284c7] uppercase">
                             MROSC · Lei Federal 13.019/2014
                           </span>
-                          <h3 className="font-black text-base text-[#0a1e36] uppercase">
+                          <h3 id={`${fid}-doc-title`} className="font-black text-base text-[#0a1e36] uppercase">
                             {isCreatingDoc ? 'Publicar Documento Oficial' : 'Editar Documento'}
                           </h3>
                         </div>
                         <button
+                          type="button"
+                          aria-label="Fechar"
                           onClick={() => {
                             setIsCreatingDoc(false);
                             setEditingDoc(null);
@@ -5578,11 +5773,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           </div>
 
                           <div className="flex justify-center">
-                            <label className="px-4 py-2 bg-[#0284c7] hover:bg-[#0369a1] text-white font-bold rounded-lg cursor-pointer inline-flex items-center gap-1.5 shadow-2xs">
+                            <label className="px-4 py-2 bg-[#0284c7] hover:bg-[#0369a1] text-white font-bold rounded-lg cursor-pointer inline-flex items-center gap-1.5 shadow-2xs focus-within:ring-2 focus-within:ring-sky-500 focus-within:ring-offset-1">
                               <Upload className="w-3.5 h-3.5" />
                               <span>
                                 {isUploadingDocFile
-                                  ? 'Processando arquivo...'
+                                  ? 'Processando arquivo…'
                                   : editingDoc.fileName
                                   ? 'Substituir Arquivo Anexado'
                                   : 'Selecionar Arquivo no Computador'}
@@ -5591,7 +5786,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                 type="file"
                                 accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,image/*"
                                 onChange={handleTransparencyFileUpload}
-                                className="hidden"
+                                className="sr-only"
                                 disabled={isUploadingDocFile}
                               />
                             </label>
@@ -5631,10 +5826,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         </div>
 
                         <div>
-                          <label className="block font-bold text-slate-700 uppercase mb-1">
+                          <label htmlFor={`${fid}-f63`} className="block font-bold text-slate-700 uppercase mb-1">
                             Título do Documento *
                           </label>
-                          <input
+                          <input id={`${fid}-f63`}
                             type="text"
                             value={editingDoc.title}
                             onChange={(e) =>
@@ -5647,10 +5842,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
                         <div className="grid grid-cols-3 gap-3">
                           <div>
-                            <label className="block font-bold text-slate-700 uppercase mb-1">
+                            <label htmlFor={`${fid}-f64`} className="block font-bold text-slate-700 uppercase mb-1">
                               Categoria *
                             </label>
-                            <select
+                            <select id={`${fid}-f64`}
                               value={editingDoc.category}
                               onChange={(e) =>
                                 setEditingDoc({
@@ -5671,10 +5866,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           </div>
 
                           <div>
-                            <label className="block font-bold text-slate-700 uppercase mb-1">
+                            <label htmlFor={`${fid}-f65`} className="block font-bold text-slate-700 uppercase mb-1">
                               Formato
                             </label>
-                            <input
+                            <input id={`${fid}-f65`}
                               type="text"
                               value={editingDoc.fileType || 'PDF'}
                               onChange={(e) =>
@@ -5685,10 +5880,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           </div>
 
                           <div>
-                            <label className="block font-bold text-slate-700 uppercase mb-1">
+                            <label htmlFor={`${fid}-f66`} className="block font-bold text-slate-700 uppercase mb-1">
                               Status / Selo
                             </label>
-                            <input
+                            <input id={`${fid}-f66`}
                               type="text"
                               value={editingDoc.badge}
                               onChange={(e) =>
@@ -5701,10 +5896,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div>
-                            <label className="block font-bold text-slate-700 uppercase mb-1">
+                            <label htmlFor={`${fid}-f67`} className="block font-bold text-slate-700 uppercase mb-1">
                               Data de Atualização
                             </label>
-                            <input
+                            <input id={`${fid}-f67`}
                               type="text"
                               value={editingDoc.date}
                               onChange={(e) =>
@@ -5715,26 +5910,27 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           </div>
 
                           <div>
-                            <label className="block font-bold text-slate-700 uppercase mb-1">
+                            <label htmlFor={`${fid}-f68`} className="block font-bold text-slate-700 uppercase mb-1">
                               Link Externo Opcional (URL)
                             </label>
-                            <input
+                            <input id={`${fid}-f68`}
                               type="url"
+                              spellCheck={false}
                               value={editingDoc.downloadUrl || ''}
                               onChange={(e) =>
                                 setEditingDoc({ ...editingDoc, downloadUrl: e.target.value })
                               }
-                              placeholder="https://..."
+                              placeholder="https://…"
                               className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg"
                             />
                           </div>
                         </div>
 
                         <div>
-                          <label className="block font-bold text-slate-700 uppercase mb-1">
+                          <label htmlFor={`${fid}-f69`} className="block font-bold text-slate-700 uppercase mb-1">
                             Descrição e Finalidade
                           </label>
-                          <textarea
+                          <textarea id={`${fid}-f69`}
                             rows={3}
                             value={editingDoc.description}
                             onChange={(e) =>
@@ -5812,7 +6008,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
                           <div className="flex items-center gap-1.5 flex-shrink-0">
                             {hasAttachedFile && (
-                              <a
+                              <a aria-label="Baixar arquivo anexado"
                                 href={doc.fileDataUrl || doc.downloadUrl}
                                 download={doc.fileName || `${doc.title}.pdf`}
                                 target="_blank"
@@ -5834,7 +6030,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                               <Edit3 className="w-3.5 h-3.5" />
                               <span>{hasAttachedFile ? 'Editar' : 'Anexar / Editar'}</span>
                             </button>
-                            <button
+                            <button aria-label="Excluir"
                               onClick={() => {
                                 requestPinProtectedAction(() => {
                                   setDraftDocs((prev) => prev.filter((d) => d.id !== doc.id));
@@ -5953,18 +6149,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                 {/* Manual RSVP Create/Edit Modal */}
                 {editingRsvpItem && (
                   <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
-                    <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+                    <div
+                      ref={rsvpDialogRef}
+                      role="dialog"
+                      aria-modal="true"
+                      aria-labelledby={`${fid}-rsvp-title`}
+                      className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4"
+                    >
                       <div className="flex items-center justify-between border-b pb-3">
                         <div>
                           <span className="text-[10px] font-bold text-[#0284c7] uppercase">
                             Controle de Participantes
                           </span>
-                          <h3 className="font-black text-base text-[#0a1e36] uppercase">
+                          <h3 id={`${fid}-rsvp-title`} className="font-black text-base text-[#0a1e36] uppercase">
                             {isCreatingRsvp ? 'Cadastrar Inscrição Manual' : 'Editar Inscrição'}
                           </h3>
                         </div>
                         <button
                           type="button"
+                          aria-label="Fechar"
                           onClick={() => {
                             setEditingRsvpItem(null);
                             setIsCreatingRsvp(false);
@@ -5977,10 +6180,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
                       <div className="space-y-3.5 text-xs">
                         <div>
-                          <label className="block font-bold text-slate-700 uppercase mb-1">
+                          <label htmlFor={`${fid}-f70`} className="block font-bold text-slate-700 uppercase mb-1">
                             Evento / Atividade Esportiva *
                           </label>
-                          <select
+                          <select id={`${fid}-f70`}
                             value={editingRsvpItem.eventId}
                             onChange={(e) => {
                               const val = e.target.value;
@@ -6014,10 +6217,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         </div>
 
                         <div>
-                          <label className="block font-bold text-slate-700 uppercase mb-1">
+                          <label htmlFor={`${fid}-f71`} className="block font-bold text-slate-700 uppercase mb-1">
                             Nome Completo do Participante / Aluno *
                           </label>
-                          <input
+                          <input id={`${fid}-f71`}
                             type="text"
                             value={editingRsvpItem.name}
                             onChange={(e) =>
@@ -6030,10 +6233,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div>
-                            <label className="block font-bold text-slate-700 uppercase mb-1">
+                            <label htmlFor={`${fid}-f72`} className="block font-bold text-slate-700 uppercase mb-1">
                               Telefone / WhatsApp *
                             </label>
-                            <input
+                            <input id={`${fid}-f72`}
                               type="tel"
                               value={editingRsvpItem.phone}
                               onChange={(e) =>
@@ -6045,10 +6248,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           </div>
 
                           <div>
-                            <label className="block font-bold text-slate-700 uppercase mb-1">
+                            <label htmlFor={`${fid}-f73`} className="block font-bold text-slate-700 uppercase mb-1">
                               Quantidade de Vagas
                             </label>
-                            <input
+                            <input id={`${fid}-f73`}
                               type="number"
                               min={1}
                               max={10}
@@ -6099,15 +6302,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                 <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row gap-3 items-center justify-between">
                   <div className="relative w-full sm:w-80">
                     <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="text"
+                    <input aria-label="Buscar por nome, telefone, código"
+                      type="search"
                       value={rsvpSearch}
                       onChange={(e) => setRsvpSearch(e.target.value)}
-                      placeholder="Buscar por nome, telefone, código..."
+                      placeholder="Buscar por nome, telefone, código…"
                       className="w-full text-xs pl-9 pr-8 py-2 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none"
                     />
                     {rsvpSearch && (
                       <button
+                        type="button"
+                        aria-label="Limpar busca"
                         onClick={() => setRsvpSearch('')}
                         className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                       >
@@ -6117,8 +6322,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   </div>
 
                   <div className="w-full sm:w-auto flex items-center gap-2">
-                    <label className="text-xs font-bold text-slate-600 whitespace-nowrap">Filtrar Atividade:</label>
-                    <select
+                    <label htmlFor={`${fid}-f74`} className="text-xs font-bold text-slate-600 whitespace-nowrap">Filtrar Atividade:</label>
+                    <select id={`${fid}-f74`}
                       value={rsvpEventFilter}
                       onChange={(e) => setRsvpEventFilter(e.target.value)}
                       className="text-xs p-2 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500"
@@ -6167,7 +6372,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                             </td>
                             <td className="p-3.5 text-slate-400 text-[11px]">{r.date}</td>
                             <td className="p-3.5 text-right space-x-1 whitespace-nowrap">
-                              <button
+                              <button aria-label="Editar inscrição"
                                 onClick={() => {
                                   setIsCreatingRsvp(false);
                                   setEditingRsvpItem({ ...r });
@@ -6177,7 +6382,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                               >
                                 <Edit3 className="w-3.5 h-3.5" />
                               </button>
-                              <button
+                              <button aria-label="Cancelar inscrição"
                                 onClick={() => {
                                   requestPinProtectedAction(() => {
                                     setDraftRsvps((prev) => prev.filter((item) => item.id !== r.id));
@@ -6283,11 +6488,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                 <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row gap-3 items-center justify-between">
                   <div className="relative w-full sm:w-80">
                     <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="text"
+                    <input aria-label="Buscar por nome, assunto ou mensagem"
+                      type="search"
                       value={msgSearch}
                       onChange={(e) => setMsgSearch(e.target.value)}
-                      placeholder="Buscar por nome, assunto ou mensagem..."
+                      placeholder="Buscar por nome, assunto ou mensagem…"
                       className="w-full text-xs pl-9 pr-8 py-2 bg-slate-50 border border-slate-300 rounded-xl"
                     />
                   </div>
@@ -6302,6 +6507,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         key={tab.id}
                         type="button"
                         onClick={() => setMsgStatusFilter(tab.id as any)}
+                        aria-pressed={msgStatusFilter === tab.id}
                         className={`px-3 py-1 rounded-lg cursor-pointer transition-colors ${
                           msgStatusFilter === tab.id
                             ? 'bg-[#0a1e36] text-white'
@@ -6400,7 +6606,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                               >
                                 {msg.read ? 'Marcar Não Lida' : 'Marcar como Lida'}
                               </button>
-                              <button
+                              <button aria-label="Excluir mensagem"
                                 onClick={() => {
                                   if (!window.confirm(`Excluir a mensagem de ${msg.name}?`)) return;
                                   setDraftMessages((prev) =>
@@ -6451,11 +6657,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   className="space-y-4"
                 >
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    <label htmlFor={`${fid}-f75`} className="block text-xs font-bold text-slate-700 uppercase mb-1">
                       E-mail do Administrador *
                     </label>
-                    <input
+                    <input id={`${fid}-f75`}
                       type="email"
+                      autoComplete="email"
+                      spellCheck={false}
                       required
                       value={draftCreds.email}
                       onChange={(e) => setDraftCreds({ ...draftCreds, email: e.target.value })}
@@ -6464,12 +6672,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    <label htmlFor={`${fid}-security-pin`} className="block text-xs font-bold text-slate-700 uppercase mb-1">
                       PIN de Segurança (6 dígitos numéricos para exclusões críticas) *
                     </label>
                     <div className="relative w-52">
                       <input
+                        id={`${fid}-security-pin`}
                         type={showAdminPin ? 'text' : 'password'}
+                        inputMode="numeric"
+                        autoComplete="off"
+                        pattern="\d{6}"
+                        aria-invalid={!pinValid}
+                        aria-describedby={!pinValid ? `${fid}-security-pin-error` : undefined}
                         maxLength={6}
                         value={draftCreds.securityPin}
                         onChange={(e) =>
@@ -6483,6 +6697,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                       <button
                         type="button"
                         onClick={() => setShowAdminPin(!showAdminPin)}
+                        aria-label={showAdminPin ? 'Ocultar PIN' : 'Exibir PIN'}
+                        aria-pressed={showAdminPin}
                         className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 p-1 cursor-pointer"
                       >
                         {showAdminPin ? (
@@ -6493,7 +6709,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                       </button>
                     </div>
                     {!pinValid && (
-                      <span className="text-[11px] text-amber-700 mt-1 block">
+                      <span id={`${fid}-security-pin-error`} className="text-[11px] text-amber-700 mt-1 block">
                         O PIN deve conter exatamente 6 números.
                       </span>
                     )}
@@ -6526,7 +6742,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
           {/* TAB 11: BACKUP & RESTAURAÇÃO (WITH STORAGE METER) */}
           {/* ========================================================================= */}
           {activeTab === 'backup' && (() => {
-            const estimatedBytes = new Blob([buildBackupJson()]).size;
+            const estimatedBytes = backupEstimatedBytes;
             const maxStorageBytes = 5 * 1024 * 1024; // ~5MB browser localStorage quota
             const usagePercent = Math.min(100, Math.round((estimatedBytes / maxStorageBytes) * 100));
 
@@ -6565,12 +6781,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                 </div>
 
                 {importJsonError && (
-                  <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl flex items-center justify-between text-xs text-rose-800">
+                  <div
+                    aria-live="polite"
+                    className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl flex items-center justify-between text-xs text-rose-800"
+                  >
                     <div className="flex items-center gap-2">
                       <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0" />
                       <span>{importJsonError}</span>
                     </div>
                     <button
+                      type="button"
+                      aria-label="Fechar"
                       onClick={() => setImportJsonError(null)}
                       className="text-rose-500 hover:text-rose-800 text-xs font-bold"
                     >
@@ -6617,13 +6838,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                       </p>
                     </div>
                     <div>
-                      <label className="w-full py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold uppercase rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1.5 text-center">
+                      <label className="w-full py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold uppercase rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1.5 text-center focus-within:ring-2 focus-within:ring-emerald-500 focus-within:ring-offset-1">
                         <Upload className="w-3.5 h-3.5" />
                         <span>Selecionar JSON</span>
                         <input
                           type="file"
                           accept=".json"
-                          className="hidden"
+                          className="sr-only"
                           onChange={(e) => {
                             const file = e.target.files?.[0];
                             if (!file) return;
@@ -6717,16 +6938,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
       {/* ========================================================================= */}
       {unsavedClosePromptOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+          <div
+            ref={unsavedDialogRef}
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby={`${fid}-unsaved-title`}
+            aria-describedby={`${fid}-unsaved-desc`}
+            className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4"
+          >
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-amber-100 text-amber-700 rounded-full flex items-center justify-center shrink-0">
                 <AlertTriangle className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="font-black text-sm text-[#0a1e36] uppercase">
+                <h3 id={`${fid}-unsaved-title`} className="font-black text-sm text-[#0a1e36] uppercase">
                   Alterações Não Salvas
                 </h3>
-                <p className="text-xs text-slate-600 mt-0.5">
+                <p id={`${fid}-unsaved-desc`} className="text-xs text-slate-600 mt-0.5">
                   Você fez edições no painel administrativo que ainda não foram salvas. Deseja salvar antes de sair?
                 </p>
               </div>
@@ -6775,22 +7003,33 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
       {/* ========================================================================= */}
       {pinPromptOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 space-y-4 text-center">
+          <div
+            ref={pinDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={`${fid}-pin-title`}
+            aria-describedby={`${fid}-pin-desc`}
+            className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 space-y-4 text-center"
+          >
             <div className="w-12 h-12 bg-amber-100 text-amber-700 rounded-full flex items-center justify-center mx-auto">
               <KeyRound className="w-6 h-6" />
             </div>
 
             <div>
-              <h3 className="font-black text-sm text-[#0a1e36] uppercase">
+              <h3 id={`${fid}-pin-title`} className="font-black text-sm text-[#0a1e36] uppercase">
                 Confirmação de Segurança
               </h3>
-              <p className="text-xs text-slate-500 mt-1">
+              <p id={`${fid}-pin-desc`} className="text-xs text-slate-500 mt-1">
                 Esta é uma ação protegida. Digite o PIN mestre de 6 dígitos para autorizar:
               </p>
             </div>
 
             {pinError && (
-              <div className="text-xs font-bold text-rose-600 bg-rose-50 p-2 rounded-lg">
+              <div
+                id={`${fid}-pin-error`}
+                role="alert"
+                className="text-xs font-bold text-rose-600 bg-rose-50 p-2 rounded-lg"
+              >
                 PIN incorreto! Verifique o código cadastrado.
               </div>
             )}
@@ -6798,6 +7037,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
             <form onSubmit={handleConfirmPin} className="space-y-4">
               <input
                 type="password"
+                aria-label="PIN de segurança"
+                aria-invalid={pinError}
+                aria-describedby={pinError ? `${fid}-pin-error` : undefined}
+                inputMode="numeric"
+                autoComplete="off"
+                pattern="\d{6}"
                 required
                 maxLength={6}
                 autoFocus
