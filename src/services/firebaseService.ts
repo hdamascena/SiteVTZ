@@ -5,11 +5,7 @@ import {
   getDocs,
   setDoc,
   deleteDoc,
-  onSnapshot,
-  query,
-  orderBy,
-  Unsubscribe,
-} from 'firebase/firestore';
+} from 'firebase/firestore/lite';
 import {
   signInWithPopup,
   signInWithEmailAndPassword,
@@ -17,8 +13,10 @@ import {
   signOut,
   onAuthStateChanged,
   User,
+  Unsubscribe,
 } from 'firebase/auth';
-import { db, auth, OperationType, handleFirestoreError } from '../firebase.ts';
+import { db } from '../firebase.ts';
+import { auth, OperationType, handleFirestoreError } from '../firebaseAuth.ts';
 import type {
   NewsArticle,
   VitalizarEvent,
@@ -306,48 +304,7 @@ export async function submitContactMessageToFirestore(message: ContactMessageRec
 }
 
 // ============================================================================
-// 4. REAL-TIME SUBSCRIPTION HELPERS
-// ============================================================================
-
-export function subscribeToSponsors(
-  callback: (sponsors: Sponsor[]) => void
-): Unsubscribe {
-  const colRef = collection(db, COLLECTIONS.SPONSORS);
-  return onSnapshot(
-    colRef,
-    (snapshot) => {
-      if (!snapshot.empty) {
-        const list = snapshot.docs.map((d) => d.data() as Sponsor);
-        list.sort((a, b) => (a.order || 0) - (b.order || 0));
-        callback(list);
-      }
-    },
-    (error) => {
-      console.info('Aviso Firestore Snapshot (Sponsors):', error.message);
-    }
-  );
-}
-
-export function subscribeToNews(
-  callback: (articles: NewsArticle[]) => void
-): Unsubscribe {
-  const colRef = collection(db, COLLECTIONS.NEWS);
-  return onSnapshot(
-    colRef,
-    (snapshot) => {
-      if (!snapshot.empty) {
-        const list = snapshot.docs.map((d) => d.data() as NewsArticle);
-        callback(list);
-      }
-    },
-    (error) => {
-      console.info('Aviso Firestore Snapshot (News):', error.message);
-    }
-  );
-}
-
-// ============================================================================
-// 5. FIREBASE AUTHENTICATION & ADMIN ROLE VERIFICATION
+// 4. FIREBASE AUTHENTICATION & ADMIN ROLE VERIFICATION
 // ============================================================================
 
 export async function verifyFirebaseAdminAccess(

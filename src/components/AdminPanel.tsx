@@ -62,7 +62,7 @@ import {
   inferFileTypeBadge,
   parseEventIsoDate,
 } from '../utils/fileUpload.ts';
-import { auth } from '../firebase.ts';
+import { auth } from '../firebaseAuth.ts';
 import {
   loginWithGoogleAdmin,
   loginWithEmailPasswordFirebase,

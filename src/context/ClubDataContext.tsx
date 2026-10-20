@@ -23,7 +23,7 @@ import {
 } from '../utils/adminAuth.ts';
 import type { AuditLogEntry } from '../utils/adminAuth.ts';
 import { db } from '../firebase.ts';
-import { doc, getDoc, getDocs, collection, setDoc, deleteDoc } from 'firebase/firestore';
+import { doc, getDoc, getDocs, collection, setDoc, deleteDoc } from 'firebase/firestore/lite';
 import { withSpotsStatus } from '../utils/eventFilter.ts';
 
 /** Completa dados da entidade salvos/importados sem algum campo (evita quebrar rodapé e cabeçalho). */
@@ -448,77 +448,77 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   useEffect(() => {
     let isMounted = true;
     async function hydrateFromFirestore() {
-      try {
-        // 1. Club Info
-        const remoteClubInfo = await getDoc(doc(db, 'club_info', 'main'));
-        if (remoteClubInfo.exists() && isMounted) {
-          const remoteData = normalizeClubInfo(remoteClubInfo.data());
-          setClubInfoState(remoteData);
-          localStorage.setItem(STORAGE_KEYS.CLUB_INFO, JSON.stringify(remoteData));
-        }
+      // Busca tudo em paralelo; uma coleção com erro não impede as demais.
+      const [clubRes, settingsRes, newsRes, sponsorsRes, eventsRes, projectsRes, galleryRes, docsRes] =
+        await Promise.allSettled([
+          getDoc(doc(db, 'club_info', 'main')),
+          getDoc(doc(db, 'site_settings', 'main')),
+          getDocs(collection(db, 'news_articles')),
+          getDocs(collection(db, 'sponsors')),
+          getDocs(collection(db, 'events')),
+          getDocs(collection(db, 'projects')),
+          getDocs(collection(db, 'gallery_albums')),
+          getDocs(collection(db, 'transparency_docs')),
+        ]);
+      if (!isMounted) return;
 
-        // 1b. Site Settings
-        const remoteSiteSettings = await getDoc(doc(db, 'site_settings', 'main'));
-        if (remoteSiteSettings.exists() && isMounted) {
-          const remoteSettings = normalizeSiteSettings(remoteSiteSettings.data() as Partial<SiteSettings>);
-          setSiteSettingsState(remoteSettings);
-          localStorage.setItem(STORAGE_KEYS.SITE_SETTINGS, JSON.stringify(remoteSettings));
+      const persist = (key: string, value: unknown) => {
+        try {
+          localStorage.setItem(key, JSON.stringify(value));
+        } catch {
+          // Cota do navegador cheia: mantém só em memória
         }
+      };
 
-        // 2. News Articles
-        const newsSnap = await getDocs(collection(db, 'news_articles'));
-        if (!newsSnap.empty && isMounted) {
-          const remoteNews = normalizeNews(newsSnap.docs.map((d) => d.data()));
-          setNewsArticles(remoteNews);
-          localStorage.setItem(STORAGE_KEYS.NEWS, JSON.stringify(remoteNews));
-        }
+      // Todas as atualizações no mesmo bloco síncrono → uma única renderização
+      if (clubRes.status === 'fulfilled' && clubRes.value.exists()) {
+        const remoteData = normalizeClubInfo(clubRes.value.data());
+        setClubInfoState(remoteData);
+        persist(STORAGE_KEYS.CLUB_INFO, remoteData);
+      }
+      if (settingsRes.status === 'fulfilled' && settingsRes.value.exists()) {
+        const remoteSettings = normalizeSiteSettings(settingsRes.value.data() as Partial<SiteSettings>);
+        setSiteSettingsState(remoteSettings);
+        persist(STORAGE_KEYS.SITE_SETTINGS, remoteSettings);
+      }
+      if (newsRes.status === 'fulfilled' && !newsRes.value.empty) {
+        const remoteNews = normalizeNews(newsRes.value.docs.map((d) => d.data()));
+        setNewsArticles(remoteNews);
+        persist(STORAGE_KEYS.NEWS, remoteNews);
+      }
+      if (sponsorsRes.status === 'fulfilled' && !sponsorsRes.value.empty) {
+        const remoteSponsors = sponsorsRes.value.docs.map((d) => d.data() as Sponsor);
+        remoteSponsors.sort((a, b) => (a.order || 0) - (b.order || 0));
+        setSponsors(remoteSponsors);
+        persist(STORAGE_KEYS.SPONSORS, remoteSponsors);
+      }
+      if (eventsRes.status === 'fulfilled' && !eventsRes.value.empty) {
+        const remoteEvents = eventsRes.value.docs.map((d) => d.data() as VitalizarEvent);
+        setEvents(remoteEvents);
+        persist(STORAGE_KEYS.EVENTS, remoteEvents);
+      }
+      if (projectsRes.status === 'fulfilled' && !projectsRes.value.empty) {
+        const remoteProjects = projectsRes.value.docs.map((d) => d.data() as VitalizarProject);
+        setProjects(remoteProjects);
+        persist(STORAGE_KEYS.PROJECTS, remoteProjects);
+      }
+      if (galleryRes.status === 'fulfilled' && !galleryRes.value.empty) {
+        const remoteAlbums = galleryRes.value.docs.map((d) => d.data() as PastEventPhoto);
+        setGalleryAlbums(remoteAlbums);
+        persist(STORAGE_KEYS.GALLERY, remoteAlbums);
+      }
+      if (docsRes.status === 'fulfilled' && !docsRes.value.empty) {
+        const remoteDocs = docsRes.value.docs.map((d) => d.data() as TransparencyDocument);
+        setTransparencyDocs(remoteDocs);
+        persist(STORAGE_KEYS.TRANSPARENCY, remoteDocs);
+      }
 
-        // 3. Sponsors
-        const sponsorsSnap = await getDocs(collection(db, 'sponsors'));
-        if (!sponsorsSnap.empty && isMounted) {
-          const remoteSponsors = sponsorsSnap.docs.map((d) => d.data() as Sponsor);
-          remoteSponsors.sort((a, b) => (a.order || 0) - (b.order || 0));
-          setSponsors(remoteSponsors);
-          localStorage.setItem(STORAGE_KEYS.SPONSORS, JSON.stringify(remoteSponsors));
-        }
-
-        // 4. Events
-        const eventsSnap = await getDocs(collection(db, 'events'));
-        if (!eventsSnap.empty && isMounted) {
-          const remoteEvents = eventsSnap.docs.map((d) => d.data() as VitalizarEvent);
-          setEvents(remoteEvents);
-          localStorage.setItem(STORAGE_KEYS.EVENTS, JSON.stringify(remoteEvents));
-        }
-
-        // 5. Projects
-        const projectsSnap = await getDocs(collection(db, 'projects'));
-        if (!projectsSnap.empty && isMounted) {
-          const remoteProjects = projectsSnap.docs.map((d) => d.data() as VitalizarProject);
-          setProjects(remoteProjects);
-          localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(remoteProjects));
-        }
-
-        // 6. Gallery Albums
-        const gallerySnap = await getDocs(collection(db, 'gallery_albums'));
-        if (!gallerySnap.empty && isMounted) {
-          const remoteAlbums = gallerySnap.docs.map((d) => d.data() as PastEventPhoto);
-          setGalleryAlbums(remoteAlbums);
-          localStorage.setItem(STORAGE_KEYS.GALLERY, JSON.stringify(remoteAlbums));
-        }
-
-        // 7. Transparency Docs
-        const docsSnap = await getDocs(collection(db, 'transparency_docs'));
-        if (!docsSnap.empty && isMounted) {
-          const remoteDocs = docsSnap.docs.map((d) => d.data() as TransparencyDocument);
-          setTransparencyDocs(remoteDocs);
-          localStorage.setItem(STORAGE_KEYS.TRANSPARENCY, JSON.stringify(remoteDocs));
-        }
-
-        if (isMounted) {
-          setIsFirebaseActive(true);
-        }
-      } catch (err) {
-        console.info('Firestore offline ou em fallback local:', err);
+      const failed = [clubRes, settingsRes, newsRes, sponsorsRes, eventsRes, projectsRes, galleryRes, docsRes]
+        .filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+      if (failed.length > 0) {
+        console.info('Firestore offline ou em fallback local:', failed[0].reason);
+      } else {
+        setIsFirebaseActive(true);
       }
     }
     hydrateFromFirestore();

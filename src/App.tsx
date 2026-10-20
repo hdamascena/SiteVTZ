@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { motion } from 'motion/react';
 import { ClubDataProvider, useClubData } from './context/ClubDataContext.tsx';
 import { Header } from './components/Header.tsx';
@@ -12,14 +12,26 @@ import { EventsCalendar } from './components/EventsCalendar.tsx';
 import { PhotoGallerySection } from './components/PhotoGallerySection.tsx';
 import { UltimasNoticias } from './components/UltimasNoticias.tsx';
 import { Footer } from './components/Footer.tsx';
-import { SearchModal } from './components/SearchModal.tsx';
-import { ReservationSimulatorModal } from './components/ReservationSimulatorModal.tsx';
 import { CookieBanner } from './components/CookieBanner.tsx';
-import { SubpageView } from './components/SubpageView.tsx';
-import { AdminPanel } from './components/AdminPanel.tsx';
 import { SponsorsSection } from './components/SponsorsSection.tsx';
 import { ArrowUp, Megaphone, ArrowRight } from 'lucide-react';
 import type { EventCategory } from './types/index.ts';
+
+// Carregados sob demanda: ficam fora do bundle inicial (o painel inclui Firebase Auth)
+const SearchModal = lazy(() =>
+  import('./components/SearchModal.tsx').then((m) => ({ default: m.SearchModal }))
+);
+const ReservationSimulatorModal = lazy(() =>
+  import('./components/ReservationSimulatorModal.tsx').then((m) => ({
+    default: m.ReservationSimulatorModal,
+  }))
+);
+const SubpageView = lazy(() =>
+  import('./components/SubpageView.tsx').then((m) => ({ default: m.SubpageView }))
+);
+const AdminPanel = lazy(() =>
+  import('./components/AdminPanel.tsx').then((m) => ({ default: m.AdminPanel }))
+);
 
 const EASE_EDITORIAL: [number, number, number, number] = [0.16, 1, 0.3, 1];
 
@@ -165,27 +177,23 @@ function VitalizarMainApp() {
       {/* Main Content */}
       <main className="flex-1">
         {activeSubpage ? (
-          <SubpageView
-            key={`${activeSubpage}-${activeSubTab ?? ''}`}
-            pageId={activeSubpage}
-            subId={activeSubTab}
-            onBack={() => setActiveSubpage(null)}
-            onOpenInscricoes={() => setInscricoesOpen(true)}
-          />
+          <Suspense fallback={<div className="min-h-[60vh]" />}>
+            <SubpageView
+              key={`${activeSubpage}-${activeSubTab ?? ''}`}
+              pageId={activeSubpage}
+              subId={activeSubTab}
+              onBack={() => setActiveSubpage(null)}
+              onOpenInscricoes={() => setInscricoesOpen(true)}
+            />
+          </Suspense>
         ) : (
           <>
             {/* Section 1: Editorial Hero & Quick Pillars */}
-            <motion.div
-              initial={{ opacity: 0, y: 16 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, amount: 0.08 }}
-              transition={{ duration: 0.55, ease: EASE_EDITORIAL }}
-            >
-              <HeroCarousel
-                onOpenInscricoes={() => setInscricoesOpen(true)}
-                onOpenSubpage={handleOpenSubpage}
-              />
-            </motion.div>
+            {/* Sem fade de entrada: o hero é o maior conteúdo visível (LCP) e deve aparecer de imediato */}
+            <HeroCarousel
+              onOpenInscricoes={() => setInscricoesOpen(true)}
+              onOpenSubpage={handleOpenSubpage}
+            />
 
             {/* Section 2: Agenda de Eventos & Oficinas (RSVP Rápido) */}
             <motion.div
@@ -265,28 +273,33 @@ function VitalizarMainApp() {
         </button>
       )}
 
-      {/* Interactive Modals */}
-      <SearchModal
-        isOpen={searchOpen}
-        onClose={() => setSearchOpen(false)}
-        onSelectAction={handleSearchSelectAction}
-      />
+      {/* Interactive Modals (montados só quando abertos) */}
+      <Suspense fallback={null}>
+        {searchOpen && (
+          <SearchModal
+            isOpen
+            onClose={() => setSearchOpen(false)}
+            onSelectAction={handleSearchSelectAction}
+          />
+        )}
 
-      <ReservationSimulatorModal
-        isOpen={inscricoesOpen}
-        onClose={() => setInscricoesOpen(false)}
-      />
+        {inscricoesOpen && (
+          <ReservationSimulatorModal isOpen onClose={() => setInscricoesOpen(false)} />
+        )}
+      </Suspense>
 
       {/* Admin Control Panel */}
       {adminOpen && (
-        <AdminPanel
-          onClose={() => {
-            setAdminOpen(false);
-            if (window.location.hash === '#admin') {
-              window.history.pushState(null, '', window.location.pathname);
-            }
-          }}
-        />
+        <Suspense fallback={<div className="fixed inset-0 z-50 bg-[#061a38]" />}>
+          <AdminPanel
+            onClose={() => {
+              setAdminOpen(false);
+              if (window.location.hash === '#admin') {
+                window.history.pushState(null, '', window.location.pathname);
+              }
+            }}
+          />
+        </Suspense>
       )}
     </div>
   );
