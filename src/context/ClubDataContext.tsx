@@ -6,6 +6,7 @@ import {
   VITALIZAR_PROJECTS,
   TRANSPARENCY_DOCUMENTS,
   DEFAULT_SITE_SETTINGS,
+  FACILITY_POLOS,
 } from '../data/clubeData.ts';
 import { INITIAL_SPONSORS } from '../data/sponsorsData.ts';
 import type {
@@ -16,6 +17,8 @@ import type {
   PastEventPhoto,
   Sponsor,
   SiteSettings,
+  FacilityPolo,
+  ScoutInquiryRecord,
 } from '../types/index.ts';
 import {
   createAuditLogEntry,
@@ -23,29 +26,7 @@ import {
 } from '../utils/adminAuth.ts';
 import type { AuditLogEntry } from '../utils/adminAuth.ts';
 import { db } from '../firebase.ts';
-import { doc, getDoc, getDocs, collection, setDoc, deleteDoc } from 'firebase/firestore/lite';
-import { withSpotsStatus } from '../utils/eventFilter.ts';
-
-/** Completa dados da entidade salvos/importados sem algum campo (evita quebrar rodapé e cabeçalho). */
-const normalizeClubInfo = (info: any): typeof CLUB_INFO => ({
-  ...CLUB_INFO,
-  ...(info && typeof info === 'object' ? info : {}),
-  phones: Array.isArray(info?.phones) ? info.phones : CLUB_INFO.phones,
-  hours: { ...CLUB_INFO.hours, ...(info?.hours || {}) },
-  socials: { ...CLUB_INFO.socials, ...(info?.socials || {}) },
-});
-
-/** Garante que o conteúdo da notícia seja sempre uma lista de parágrafos. */
-const normalizeNews = (articles: any[]): NewsArticle[] =>
-  articles.map((a) => ({
-    ...a,
-    content: Array.isArray(a?.content)
-      ? a.content
-      : String(a?.content ?? '')
-          .split(/\n\s*\n/)
-          .map((p: string) => p.trim())
-          .filter(Boolean),
-  }));
+import { doc, getDoc, getDocs, collection, setDoc, deleteDoc } from 'firebase/firestore';
 
 export const INITIAL_GALLERY_ALBUMS: PastEventPhoto[] = [
   {
@@ -199,6 +180,10 @@ interface ClubDataContextType {
   addSponsor: (sponsor: Omit<Sponsor, 'id'>) => void;
   updateSponsor: (sponsor: Sponsor) => void;
   deleteSponsor: (id: string) => void;
+  facilityPolos: FacilityPolo[];
+  scoutInquiries: ScoutInquiryRecord[];
+  addScoutInquiry: (inquiry: Omit<ScoutInquiryRecord, 'id' | 'protocol' | 'createdAt' | 'status'>) => string;
+  deleteScoutInquiry: (id: string) => void;
   contactMessages: ContactMessageRecord[];
   addContactMessage: (msg: Omit<ContactMessageRecord, 'id' | 'date' | 'read'>) => void;
   markContactMessageRead: (id: string) => void;
@@ -208,7 +193,6 @@ interface ClubDataContextType {
   clearAuditLogs: () => void;
   resetAllToDefaults: () => void;
   exportDatabaseJson: () => string;
-  buildBackupJson: () => string;
   importDatabaseJson: (jsonString: string) => { success: boolean; message: string };
   saveAdminChanges: (payload: {
     clubInfo?: typeof CLUB_INFO;
@@ -219,6 +203,8 @@ interface ClubDataContextType {
     projects?: VitalizarProject[];
     galleryAlbums?: PastEventPhoto[];
     transparencyDocs?: TransparencyDocument[];
+    facilityPolos?: FacilityPolo[];
+    scoutInquiries?: ScoutInquiryRecord[];
     rsvps?: EventRsvpRecord[];
     contactMessages?: ContactMessageRecord[];
     logDetails?: string;
@@ -239,49 +225,461 @@ const STORAGE_KEYS = {
   PROJECTS: 'vitalizar_db_projects',
   GALLERY: 'vitalizar_db_gallery',
   TRANSPARENCY: 'vitalizar_db_transparency',
+  POLOS: 'vitalizar_db_polos',
+  SCOUT_INQUIRIES: 'vitalizar_db_scout_inquiries',
   RSVPS: 'vitalizar_db_rsvps',
   MESSAGES: 'vitalizar_db_messages',
   LOGS: 'vitalizar_db_logs',
 };
 
+function normalizeClubInfo(raw?: Partial<typeof CLUB_INFO> | null): typeof CLUB_INFO {
+  if (!raw || typeof raw !== 'object') {
+    return CLUB_INFO;
+  }
+  return {
+    ...CLUB_INFO,
+    ...raw,
+    phones:
+      Array.isArray(raw.phones) && raw.phones.length > 0
+        ? raw.phones.map((p) => String(p || ''))
+        : CLUB_INFO.phones,
+    secondaryActivities:
+      Array.isArray(raw.secondaryActivities) && raw.secondaryActivities.length > 0
+        ? raw.secondaryActivities
+        : CLUB_INFO.secondaryActivities,
+    hours: {
+      ...CLUB_INFO.hours,
+      ...(raw.hours && typeof raw.hours === 'object' ? raw.hours : {}),
+    },
+    socials: {
+      ...CLUB_INFO.socials,
+      ...(raw.socials && typeof raw.socials === 'object' ? raw.socials : {}),
+    },
+  };
+}
+
 function normalizeSiteSettings(raw?: Partial<SiteSettings> | null): SiteSettings {
   if (!raw || typeof raw !== 'object') {
     return DEFAULT_SITE_SETTINGS;
   }
+  const defaultDash = DEFAULT_SITE_SETTINGS.transparencyDashboard!;
+  const rawDash =
+    raw.transparencyDashboard && typeof raw.transparencyDashboard === 'object'
+      ? raw.transparencyDashboard
+      : ({} as Partial<typeof defaultDash>);
+
   return {
     ...DEFAULT_SITE_SETTINGS,
     ...raw,
-    newsCategories: Array.isArray(raw.newsCategories)
-      ? raw.newsCategories
-      : DEFAULT_SITE_SETTINGS.newsCategories,
-    eventCategories: Array.isArray(raw.eventCategories)
-      ? raw.eventCategories
-      : DEFAULT_SITE_SETTINGS.eventCategories,
-    projectCategories: Array.isArray(raw.projectCategories)
-      ? raw.projectCategories.map((item: any) =>
-          typeof item === 'string' ? item : item?.label || item?.id || ''
-        ).filter(Boolean)
-      : DEFAULT_SITE_SETTINGS.projectCategories,
-    galleryCategories: Array.isArray(raw.galleryCategories)
-      ? raw.galleryCategories
-      : DEFAULT_SITE_SETTINGS.galleryCategories,
-    sponsorCategories: Array.isArray(raw.sponsorCategories)
-      ? raw.sponsorCategories
-      : DEFAULT_SITE_SETTINGS.sponsorCategories,
-    contactSubjects: Array.isArray(raw.contactSubjects)
-      ? raw.contactSubjects
-      : DEFAULT_SITE_SETTINGS.contactSubjects,
-    siteTags: Array.isArray(raw.siteTags)
-      ? raw.siteTags
-      : DEFAULT_SITE_SETTINGS.siteTags,
-    searchSuggestions: Array.isArray(raw.searchSuggestions)
-      ? raw.searchSuggestions
-      : DEFAULT_SITE_SETTINGS.searchSuggestions,
+    newsCategories:
+      Array.isArray(raw.newsCategories) && raw.newsCategories.length > 0
+        ? raw.newsCategories
+        : DEFAULT_SITE_SETTINGS.newsCategories,
+    eventCategories:
+      Array.isArray(raw.eventCategories) && raw.eventCategories.length > 0
+        ? raw.eventCategories
+        : DEFAULT_SITE_SETTINGS.eventCategories,
+    projectCategories:
+      Array.isArray(raw.projectCategories) && raw.projectCategories.length > 0
+        ? raw.projectCategories
+            .map((item: any) =>
+              typeof item === 'string' ? item : item?.label || item?.id || ''
+            )
+            .filter(Boolean)
+        : DEFAULT_SITE_SETTINGS.projectCategories,
+    galleryCategories:
+      Array.isArray(raw.galleryCategories) && raw.galleryCategories.length > 0
+        ? raw.galleryCategories
+        : DEFAULT_SITE_SETTINGS.galleryCategories,
+    sponsorCategories:
+      Array.isArray(raw.sponsorCategories) && raw.sponsorCategories.length > 0
+        ? raw.sponsorCategories
+        : DEFAULT_SITE_SETTINGS.sponsorCategories,
+    contactSubjects:
+      Array.isArray(raw.contactSubjects) && raw.contactSubjects.length > 0
+        ? raw.contactSubjects
+        : DEFAULT_SITE_SETTINGS.contactSubjects,
+    siteTags:
+      Array.isArray(raw.siteTags) && raw.siteTags.length > 0
+        ? raw.siteTags
+        : DEFAULT_SITE_SETTINGS.siteTags,
+    searchSuggestions:
+      Array.isArray(raw.searchSuggestions) && raw.searchSuggestions.length > 0
+        ? raw.searchSuggestions
+        : DEFAULT_SITE_SETTINGS.searchSuggestions,
     announcementBanner: {
       ...DEFAULT_SITE_SETTINGS.announcementBanner,
-      ...(raw.announcementBanner || {}),
+      ...(raw.announcementBanner && typeof raw.announcementBanner === 'object'
+        ? raw.announcementBanner
+        : {}),
     },
+    transparencyDashboard: {
+      ...defaultDash,
+      ...rawDash,
+      fiscalYear: rawDash.fiscalYear || defaultDash.fiscalYear,
+      lastAuditDate: rawDash.lastAuditDate || defaultDash.lastAuditDate,
+      auditStatus: rawDash.auditStatus || defaultDash.auditStatus,
+      socioTorcedoresTotal:
+        typeof rawDash.socioTorcedoresTotal === 'number' && !Number.isNaN(rawDash.socioTorcedoresTotal)
+          ? rawDash.socioTorcedoresTotal
+          : defaultDash.socioTorcedoresTotal,
+      socioTorcedoresGoal:
+        typeof rawDash.socioTorcedoresGoal === 'number' && !Number.isNaN(rawDash.socioTorcedoresGoal)
+          ? rawDash.socioTorcedoresGoal
+          : defaultDash.socioTorcedoresGoal,
+      socioTorcedoresNewMonth:
+        typeof rawDash.socioTorcedoresNewMonth === 'number' &&
+        !Number.isNaN(rawDash.socioTorcedoresNewMonth)
+          ? rawDash.socioTorcedoresNewMonth
+          : defaultDash.socioTorcedoresNewMonth,
+      socioTorcedoresRetentionRate:
+        rawDash.socioTorcedoresRetentionRate || defaultDash.socioTorcedoresRetentionRate,
+      totalRevenue:
+        typeof rawDash.totalRevenue === 'number' && !Number.isNaN(rawDash.totalRevenue)
+          ? rawDash.totalRevenue
+          : defaultDash.totalRevenue,
+      totalInvested:
+        typeof rawDash.totalInvested === 'number' && !Number.isNaN(rawDash.totalInvested)
+          ? rawDash.totalInvested
+          : defaultDash.totalInvested,
+      directBeneficiaries:
+        typeof rawDash.directBeneficiaries === 'number' && !Number.isNaN(rawDash.directBeneficiaries)
+          ? rawDash.directBeneficiaries
+          : defaultDash.directBeneficiaries,
+      socioTorcedoresTiers:
+        Array.isArray(rawDash.socioTorcedoresTiers) && rawDash.socioTorcedoresTiers.length > 0
+          ? rawDash.socioTorcedoresTiers.map((t, i) => ({
+              id: t?.id || `tier-${i}`,
+              name: t?.name || 'Sócio Contribuinte',
+              monthlyContribution: t?.monthlyContribution || 'R$ 25,00/mês',
+              count: typeof t?.count === 'number' && !Number.isNaN(t.count) ? t.count : 0,
+              benefitSummary: t?.benefitSummary || '',
+            }))
+          : defaultDash.socioTorcedoresTiers,
+      socioTorcedoresMonthlyGrowth:
+        Array.isArray(rawDash.socioTorcedoresMonthlyGrowth) &&
+        rawDash.socioTorcedoresMonthlyGrowth.length > 0
+          ? rawDash.socioTorcedoresMonthlyGrowth.map((m, i) => ({
+              month: m?.month || `M${i + 1}`,
+              count: typeof m?.count === 'number' && !Number.isNaN(m.count) ? m.count : 0,
+            }))
+          : defaultDash.socioTorcedoresMonthlyGrowth,
+      allocationBreakdown:
+        Array.isArray(rawDash.allocationBreakdown) && rawDash.allocationBreakdown.length > 0
+          ? rawDash.allocationBreakdown.map((a) => ({
+              label: a?.label || 'Área Estatutária',
+              percentage:
+                typeof a?.percentage === 'number' && !Number.isNaN(a.percentage) ? a.percentage : 0,
+              amount: typeof a?.amount === 'number' && !Number.isNaN(a.amount) ? a.amount : 0,
+              description: a?.description || '',
+            }))
+          : defaultDash.allocationBreakdown,
+      revenueSources:
+        Array.isArray(rawDash.revenueSources) && rawDash.revenueSources.length > 0
+          ? rawDash.revenueSources.map((r) => ({
+              label: r?.label || 'Fonte de Custeio',
+              percentage:
+                typeof r?.percentage === 'number' && !Number.isNaN(r.percentage) ? r.percentage : 0,
+              amount: typeof r?.amount === 'number' && !Number.isNaN(r.amount) ? r.amount : 0,
+            }))
+          : defaultDash.revenueSources,
+    },
+    heroSlides:
+      Array.isArray(raw.heroSlides) && raw.heroSlides.length > 0
+        ? raw.heroSlides
+        : DEFAULT_SITE_SETTINGS.heroSlides,
+    pixConfig: {
+      ...DEFAULT_SITE_SETTINGS.pixConfig!,
+      ...(raw.pixConfig && typeof raw.pixConfig === 'object' ? raw.pixConfig : {}),
+      suggestedAmounts:
+        Array.isArray(raw.pixConfig?.suggestedAmounts) &&
+        raw.pixConfig!.suggestedAmounts.length > 0
+          ? raw.pixConfig!.suggestedAmounts
+          : DEFAULT_SITE_SETTINGS.pixConfig!.suggestedAmounts,
+    },
+    donationPledges: Array.isArray(raw.donationPledges)
+      ? raw.donationPledges
+      : DEFAULT_SITE_SETTINGS.donationPledges || [],
+    matchResults:
+      Array.isArray(raw.matchResults) && raw.matchResults.length > 0
+        ? raw.matchResults
+        : DEFAULT_SITE_SETTINGS.matchResults || [],
+    clubTrophies:
+      Array.isArray(raw.clubTrophies) && raw.clubTrophies.length > 0
+        ? raw.clubTrophies
+        : DEFAULT_SITE_SETTINGS.clubTrophies || [],
+    volunteers: Array.isArray(raw.volunteers)
+      ? raw.volunteers
+      : DEFAULT_SITE_SETTINGS.volunteers || [],
+    attendanceSessions: Array.isArray(raw.attendanceSessions)
+      ? raw.attendanceSessions
+      : DEFAULT_SITE_SETTINGS.attendanceSessions || [],
   };
+}
+
+
+function normalizeTransparencyDocs(raw?: TransparencyDocument[] | null): TransparencyDocument[] {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return TRANSPARENCY_DOCUMENTS;
+  }
+  const defaultMap = new Map(TRANSPARENCY_DOCUMENTS.map((d) => [d.id, d]));
+  const seenIds = new Set<string>();
+  const merged: TransparencyDocument[] = [];
+
+  for (let i = 0; i < raw.length; i++) {
+    const docItem = raw[i];
+    if (!docItem || typeof docItem !== 'object') continue;
+    const id = docItem.id || `doc-${i + 1}`;
+    if (seenIds.has(id)) continue;
+    seenIds.add(id);
+
+    const def = defaultMap.get(id);
+    merged.push({
+      ...(def || {}),
+      ...docItem,
+      id,
+      title: docItem.title || def?.title || 'Documento Institucional',
+      category: docItem.category || def?.category || 'prestacao_contas',
+      date: docItem.date || def?.date || '2026',
+      description: docItem.description || def?.description || '',
+      fileType: docItem.fileType || def?.fileType || 'PDF',
+      badge: docItem.badge || def?.badge || 'Vigente',
+      fileSize: docItem.fileSize || def?.fileSize,
+      period: docItem.period || def?.period,
+      protocolNumber: docItem.protocolNumber || def?.protocolNumber,
+      responsible: docItem.responsible || def?.responsible,
+      financialValue: docItem.financialValue || def?.financialValue,
+      summaryPoints:
+        Array.isArray(docItem.summaryPoints) && docItem.summaryPoints.length > 0
+          ? docItem.summaryPoints
+          : def?.summaryPoints || [],
+    });
+  }
+
+  for (const defDoc of TRANSPARENCY_DOCUMENTS) {
+    if (!seenIds.has(defDoc.id)) {
+      seenIds.add(defDoc.id);
+      merged.push(defDoc);
+    }
+  }
+  return merged;
+}
+
+function normalizeGalleryAlbums(raw?: PastEventPhoto[] | null): PastEventPhoto[] {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return INITIAL_GALLERY_ALBUMS;
+  }
+  const defaultMap = new Map(INITIAL_GALLERY_ALBUMS.map((a) => [a.id, a]));
+  return raw
+    .filter((a) => a && typeof a === 'object')
+    .map((album, idx) => {
+      const id = album.id || `album-${idx + 1}`;
+      const def = defaultMap.get(id);
+      const coverUrl =
+        album.coverUrl ||
+        def?.coverUrl ||
+        'https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=1000&q=80';
+      const title = album.title || def?.title || 'Álbum de Fotos Vitalizar';
+      const caption = album.caption || def?.caption || title;
+      const rawPhotos = Array.isArray(album.albumPhotos)
+        ? album.albumPhotos.filter((p) => p && typeof p.url === 'string')
+        : [];
+      return {
+        ...(def || {}),
+        ...album,
+        id,
+        title,
+        category: album.category || def?.category || 'Festivais Esportivos',
+        date: album.date || def?.date || '2026',
+        location: album.location || def?.location || 'Cariacica · ES',
+        coverUrl,
+        caption,
+        albumPhotos:
+          rawPhotos.length > 0
+            ? rawPhotos
+            : def?.albumPhotos && def.albumPhotos.length > 0
+            ? def.albumPhotos
+            : [{ url: coverUrl, caption }],
+      };
+    });
+}
+
+function normalizeNewsArticles(raw?: NewsArticle[] | null): NewsArticle[] {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return NEWS_ARTICLES;
+  }
+  return raw
+    .filter((n) => n && typeof n === 'object')
+    .map((art, idx) => ({
+      ...art,
+      id: art.id || `noticia-${idx + 1}`,
+      title: art.title || 'Comunicado Vitalizar',
+      date: art.date || '2026',
+      category: art.category || 'Institucional',
+      summary: art.summary || '',
+      imageUrl:
+        art.imageUrl ||
+        'https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=1000&q=80',
+      author: art.author || 'Assessoria Vitalizar',
+      content: Array.isArray(art.content)
+        ? art.content
+        : art.summary
+        ? [art.summary]
+        : [],
+      tags: Array.isArray(art.tags) ? art.tags : [],
+      attachments: Array.isArray(art.attachments) ? art.attachments : [],
+    }));
+}
+
+function normalizeEvents(raw?: VitalizarEvent[] | null): VitalizarEvent[] {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return VITALIZAR_EVENTS;
+  }
+  return raw
+    .filter((ev) => ev && typeof ev === 'object')
+    .map((ev, idx) => ({
+      ...ev,
+      id: ev.id || `evento-${idx + 1}`,
+      title: ev.title || 'Evento Esportivo Vitalizar',
+      category: ev.category || 'clinica_esportiva',
+      categoryLabel: ev.categoryLabel || 'Clínica Esportiva',
+      date: ev.date || '2026-11-15',
+      formattedDate: ev.formattedDate || ev.date || '2026',
+      dayNumber: ev.dayNumber || '15',
+      monthShort: ev.monthShort || 'NOV',
+      time: ev.time || '08:00 às 12:00',
+      location: ev.location || 'Polo Rio Marinho',
+      address: ev.address || 'Rua Quatro, 173, Rio Marinho, Cariacica - ES',
+      targetAudience: ev.targetAudience || 'Comunidade em geral',
+      coordinator: ev.coordinator || 'Coordenação Esportiva',
+      capacity: typeof ev.capacity === 'number' && ev.capacity > 0 ? ev.capacity : 30,
+      availableSpots:
+        typeof ev.availableSpots === 'number' && ev.availableSpots >= 0 ? ev.availableSpots : 30,
+      isFree: ev.isFree !== false,
+      description: ev.description || '',
+      status: ev.status || 'inscricoes_abertas',
+      scheduleHighlights: Array.isArray(ev.scheduleHighlights) ? ev.scheduleHighlights : [],
+      prerequisites: Array.isArray(ev.prerequisites) ? ev.prerequisites : [],
+      attachments: Array.isArray(ev.attachments) ? ev.attachments : [],
+    }));
+}
+
+function normalizeProjects(raw?: VitalizarProject[] | null): VitalizarProject[] {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return VITALIZAR_PROJECTS;
+  }
+  const defaultMap = new Map(VITALIZAR_PROJECTS.map((p) => [p.id, p]));
+  return raw
+    .filter((p) => p && typeof p === 'object')
+    .map((proj, idx) => {
+      const id = proj.id || `projeto-${idx + 1}`;
+      const def = defaultMap.get(id);
+      return {
+        ...(def || {}),
+        ...proj,
+        id,
+        name: proj.name || def?.name || 'Projeto Socioesportivo Vitalizar',
+        category: proj.category || def?.category || 'esporte_educacional',
+        targetAudience: proj.targetAudience || def?.targetAudience || 'Comunidade de Cariacica',
+        description: proj.description || def?.description || '',
+        schedule: proj.schedule || def?.schedule || 'Terças e Quintas',
+        location: proj.location || def?.location || 'Polo Rio Marinho',
+        coordinator: proj.coordinator || def?.coordinator || 'Equipe Técnica Vitalizar',
+        fundingSource: proj.fundingSource || def?.fundingSource || 'Recursos Próprios & Fomento',
+        imageUrl:
+          proj.imageUrl ||
+          def?.imageUrl ||
+          'https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=1000&q=80',
+        shieldUrl: proj.shieldUrl || def?.shieldUrl,
+        motto: proj.motto || def?.motto,
+        totalSpots:
+          typeof proj.totalSpots === 'number' && !Number.isNaN(proj.totalSpots)
+            ? proj.totalSpots
+            : def?.totalSpots || 60,
+        filledSpots:
+          typeof proj.filledSpots === 'number' && !Number.isNaN(proj.filledSpots)
+            ? proj.filledSpots
+            : def?.filledSpots || 45,
+        availableSpots:
+          typeof proj.availableSpots === 'number' && !Number.isNaN(proj.availableSpots)
+            ? proj.availableSpots
+            : def?.availableSpots || 15,
+        functioning:
+          proj.functioning && typeof proj.functioning === 'object'
+            ? {
+                ...def?.functioning,
+                ...proj.functioning,
+                overview: proj.functioning.overview ?? def?.functioning?.overview ?? '',
+                methodology: proj.functioning.methodology ?? def?.functioning?.methodology ?? '',
+                requirements: Array.isArray(proj.functioning.requirements)
+                  ? proj.functioning.requirements
+                  : def?.functioning?.requirements || [],
+                scheduleDetails: Array.isArray(proj.functioning.scheduleDetails)
+                  ? proj.functioning.scheduleDetails
+                  : def?.functioning?.scheduleDetails || [],
+                benefits: Array.isArray(proj.functioning.benefits)
+                  ? proj.functioning.benefits
+                  : def?.functioning?.benefits || [],
+              }
+            : def?.functioning,
+        staff: Array.isArray(proj.staff) ? proj.staff : def?.staff || [],
+        participants: Array.isArray(proj.participants)
+          ? proj.participants
+          : def?.participants || [],
+        tags: Array.isArray(proj.tags) ? proj.tags : def?.tags || [],
+        attachments: Array.isArray(proj.attachments) ? proj.attachments : def?.attachments || [],
+      };
+    });
+}
+
+function normalizeFacilityPolos(raw?: FacilityPolo[] | null): FacilityPolo[] {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return FACILITY_POLOS;
+  }
+  return raw
+    .filter((p) => p && typeof p === 'object')
+    .map((polo, idx) => ({
+      ...polo,
+      id: polo.id || `polo-${idx + 1}`,
+      name: polo.name || 'Polo Esportivo Vitalizar',
+      type: polo.type || 'polo_principal',
+      capacity: polo.capacity || 'Atendimento comunitário',
+      maxGuests: typeof polo.maxGuests === 'number' && polo.maxGuests > 0 ? polo.maxGuests : 50,
+      address: polo.address || 'Cariacica - ES',
+      description: polo.description || '',
+      includedItems: Array.isArray(polo.includedItems) ? polo.includedItems : [],
+      imageUrl:
+        polo.imageUrl ||
+        'https://images.unsplash.com/photo-1546519638-68e109498ffc?w=800&q=80',
+      rules: Array.isArray(polo.rules) ? polo.rules : [],
+    }));
+}
+
+function normalizeSponsors(raw?: Sponsor[] | null): Sponsor[] {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return INITIAL_SPONSORS;
+  }
+  return raw
+    .filter((s) => s && typeof s === 'object')
+    .map((spon, idx) => ({
+      ...spon,
+      id: spon.id || `patrocinador-${idx + 1}`,
+      name: spon.name || 'Parceiro Institucional',
+      tier: spon.tier || 'apoio',
+      tierLabel: spon.tierLabel || 'Apoio Institucional',
+      logoUrl:
+        spon.logoUrl ||
+        'https://images.unsplash.com/photo-1541872703-74c5e44368f9?w=400&q=80',
+      description: spon.description || '',
+      category: spon.category || 'Parceiro',
+      active: spon.active !== false,
+      order: typeof spon.order === 'number' ? spon.order : idx + 1,
+    }));
+}
+
+
+function sanitizeForFirestore<T>(obj: T): T {
+  return JSON.parse(JSON.stringify(obj));
 }
 
 const ClubDataContext = createContext<ClubDataContextType | null>(null);
@@ -311,7 +709,7 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [newsArticles, setNewsArticles] = useState<NewsArticle[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.NEWS);
-      return saved ? normalizeNews(JSON.parse(saved)) : NEWS_ARTICLES;
+      return saved ? normalizeNewsArticles(JSON.parse(saved)) : NEWS_ARTICLES;
     } catch {
       return NEWS_ARTICLES;
     }
@@ -321,7 +719,7 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [events, setEvents] = useState<VitalizarEvent[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.EVENTS);
-      return saved ? JSON.parse(saved) : VITALIZAR_EVENTS;
+      return saved ? normalizeEvents(JSON.parse(saved)) : VITALIZAR_EVENTS;
     } catch {
       return VITALIZAR_EVENTS;
     }
@@ -331,7 +729,7 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [projects, setProjects] = useState<VitalizarProject[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.PROJECTS);
-      return saved ? JSON.parse(saved) : VITALIZAR_PROJECTS;
+      return saved ? normalizeProjects(JSON.parse(saved)) : VITALIZAR_PROJECTS;
     } catch {
       return VITALIZAR_PROJECTS;
     }
@@ -341,7 +739,7 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [galleryAlbums, setGalleryAlbums] = useState<PastEventPhoto[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.GALLERY);
-      return saved ? JSON.parse(saved) : INITIAL_GALLERY_ALBUMS;
+      return saved ? normalizeGalleryAlbums(JSON.parse(saved)) : INITIAL_GALLERY_ALBUMS;
     } catch {
       return INITIAL_GALLERY_ALBUMS;
     }
@@ -351,7 +749,7 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [transparencyDocs, setTransparencyDocs] = useState<TransparencyDocument[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.TRANSPARENCY);
-      return saved ? JSON.parse(saved) : TRANSPARENCY_DOCUMENTS;
+      return saved ? normalizeTransparencyDocs(JSON.parse(saved)) : TRANSPARENCY_DOCUMENTS;
     } catch {
       return TRANSPARENCY_DOCUMENTS;
     }
@@ -361,11 +759,54 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [sponsors, setSponsors] = useState<Sponsor[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.SPONSORS);
-      return saved ? JSON.parse(saved) : INITIAL_SPONSORS;
+      return saved ? normalizeSponsors(JSON.parse(saved)) : INITIAL_SPONSORS;
     } catch {
       return INITIAL_SPONSORS;
     }
   });
+
+  // 5c. Facility Polos & Spaces
+  const [facilityPolos, setFacilityPolos] = useState<FacilityPolo[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.POLOS);
+      return saved ? normalizeFacilityPolos(JSON.parse(saved)) : FACILITY_POLOS;
+    } catch {
+      return FACILITY_POLOS;
+    }
+  });
+
+  // 5d. Scout Inquiries (Captação & Olheiros)
+  const [scoutInquiries, setScoutInquiries] = useState<ScoutInquiryRecord[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.SCOUT_INQUIRIES);
+      return saved
+        ? JSON.parse(saved)
+        : [
+            {
+              id: 'scout-seed-1',
+              protocol: 'SCT-2026-4812',
+              scoutName: 'Roberto Avelar',
+              organization: 'Departamento de Captação Desportiva Capixaba',
+              role: 'Observador Técnico Sub-15/Sub-17',
+              credentialsId: 'CREF 014982-G/ES',
+              phone: '(27) 99912-8834',
+              email: 'captacao.avelar@esportees.com.br',
+              inquiryType: 'avaliacao_clube',
+              targetPlayerName: 'João Victor "JV10" (Camisa 10)',
+              targetCategory: 'Sub-15',
+              preferredDate: '2026-11-10',
+              message:
+                'Acompanhamos o desempenho do atleta João Victor no último festival regional e gostaríamos de agendar uma semana de avaliação monitorada junto à comissão técnica da Vitalizar.',
+              projectName: 'Iniciação Esportiva & Cidadania (Futsal e Vôlei)',
+              createdAt: '16/10/2026 14:20',
+              status: 'nova',
+            },
+          ];
+    } catch {
+      return [];
+    }
+  });
+
 
   // 6. RSVPs
   const [rsvps, setRsvps] = useState<EventRsvpRecord[]>(() => {
@@ -444,13 +885,21 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const [isFirebaseActive, setIsFirebaseActive] = useState<boolean>(true);
 
-  // Sync initial data from Firestore if available
+  // Sync initial data from Firestore if available (Batched in a single render pass)
   useEffect(() => {
     let isMounted = true;
     async function hydrateFromFirestore() {
-      // Busca tudo em paralelo; uma coleção com erro não impede as demais.
-      const [clubRes, settingsRes, newsRes, sponsorsRes, eventsRes, projectsRes, galleryRes, docsRes] =
-        await Promise.allSettled([
+      try {
+        const [
+          clubRes,
+          settingsRes,
+          newsRes,
+          sponsorsRes,
+          eventsRes,
+          projectsRes,
+          galleryRes,
+          docsRes,
+        ] = await Promise.allSettled([
           getDoc(doc(db, 'club_info', 'main')),
           getDoc(doc(db, 'site_settings', 'main')),
           getDocs(collection(db, 'news_articles')),
@@ -460,65 +909,77 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           getDocs(collection(db, 'gallery_albums')),
           getDocs(collection(db, 'transparency_docs')),
         ]);
-      if (!isMounted) return;
 
-      const persist = (key: string, value: unknown) => {
-        try {
-          localStorage.setItem(key, JSON.stringify(value));
-        } catch {
-          // Cota do navegador cheia: mantém só em memória
+        if (!isMounted) return;
+
+        if (clubRes.status === 'fulfilled' && clubRes.value.exists()) {
+          const remoteData = normalizeClubInfo(
+            clubRes.value.data() as Partial<typeof CLUB_INFO>
+          );
+          setClubInfoState(remoteData);
+          localStorage.setItem(STORAGE_KEYS.CLUB_INFO, JSON.stringify(remoteData));
         }
-      };
 
-      // Todas as atualizações no mesmo bloco síncrono → uma única renderização
-      if (clubRes.status === 'fulfilled' && clubRes.value.exists()) {
-        const remoteData = normalizeClubInfo(clubRes.value.data());
-        setClubInfoState(remoteData);
-        persist(STORAGE_KEYS.CLUB_INFO, remoteData);
-      }
-      if (settingsRes.status === 'fulfilled' && settingsRes.value.exists()) {
-        const remoteSettings = normalizeSiteSettings(settingsRes.value.data() as Partial<SiteSettings>);
-        setSiteSettingsState(remoteSettings);
-        persist(STORAGE_KEYS.SITE_SETTINGS, remoteSettings);
-      }
-      if (newsRes.status === 'fulfilled' && !newsRes.value.empty) {
-        const remoteNews = normalizeNews(newsRes.value.docs.map((d) => d.data()));
-        setNewsArticles(remoteNews);
-        persist(STORAGE_KEYS.NEWS, remoteNews);
-      }
-      if (sponsorsRes.status === 'fulfilled' && !sponsorsRes.value.empty) {
-        const remoteSponsors = sponsorsRes.value.docs.map((d) => d.data() as Sponsor);
-        remoteSponsors.sort((a, b) => (a.order || 0) - (b.order || 0));
-        setSponsors(remoteSponsors);
-        persist(STORAGE_KEYS.SPONSORS, remoteSponsors);
-      }
-      if (eventsRes.status === 'fulfilled' && !eventsRes.value.empty) {
-        const remoteEvents = eventsRes.value.docs.map((d) => d.data() as VitalizarEvent);
-        setEvents(remoteEvents);
-        persist(STORAGE_KEYS.EVENTS, remoteEvents);
-      }
-      if (projectsRes.status === 'fulfilled' && !projectsRes.value.empty) {
-        const remoteProjects = projectsRes.value.docs.map((d) => d.data() as VitalizarProject);
-        setProjects(remoteProjects);
-        persist(STORAGE_KEYS.PROJECTS, remoteProjects);
-      }
-      if (galleryRes.status === 'fulfilled' && !galleryRes.value.empty) {
-        const remoteAlbums = galleryRes.value.docs.map((d) => d.data() as PastEventPhoto);
-        setGalleryAlbums(remoteAlbums);
-        persist(STORAGE_KEYS.GALLERY, remoteAlbums);
-      }
-      if (docsRes.status === 'fulfilled' && !docsRes.value.empty) {
-        const remoteDocs = docsRes.value.docs.map((d) => d.data() as TransparencyDocument);
-        setTransparencyDocs(remoteDocs);
-        persist(STORAGE_KEYS.TRANSPARENCY, remoteDocs);
-      }
+        if (settingsRes.status === 'fulfilled' && settingsRes.value.exists()) {
+          const remoteSettings = normalizeSiteSettings(
+            settingsRes.value.data() as Partial<SiteSettings>
+          );
+          setSiteSettingsState(remoteSettings);
+          localStorage.setItem(STORAGE_KEYS.SITE_SETTINGS, JSON.stringify(remoteSettings));
+        }
 
-      const failed = [clubRes, settingsRes, newsRes, sponsorsRes, eventsRes, projectsRes, galleryRes, docsRes]
-        .filter((r): r is PromiseRejectedResult => r.status === 'rejected');
-      if (failed.length > 0) {
-        console.info('Firestore offline ou em fallback local:', failed[0].reason);
-      } else {
+        if (newsRes.status === 'fulfilled' && !newsRes.value.empty) {
+          const remoteNews = normalizeNewsArticles(
+            newsRes.value.docs.map((d) => d.data() as NewsArticle)
+          );
+          setNewsArticles(remoteNews);
+          localStorage.setItem(STORAGE_KEYS.NEWS, JSON.stringify(remoteNews));
+        }
+
+        if (sponsorsRes.status === 'fulfilled' && !sponsorsRes.value.empty) {
+          const remoteSponsors = normalizeSponsors(
+            sponsorsRes.value.docs.map((d) => d.data() as Sponsor)
+          );
+          remoteSponsors.sort((a, b) => (a.order || 0) - (b.order || 0));
+          setSponsors(remoteSponsors);
+          localStorage.setItem(STORAGE_KEYS.SPONSORS, JSON.stringify(remoteSponsors));
+        }
+
+        if (eventsRes.status === 'fulfilled' && !eventsRes.value.empty) {
+          const remoteEvents = normalizeEvents(
+            eventsRes.value.docs.map((d) => d.data() as VitalizarEvent)
+          );
+          setEvents(remoteEvents);
+          localStorage.setItem(STORAGE_KEYS.EVENTS, JSON.stringify(remoteEvents));
+        }
+
+        if (projectsRes.status === 'fulfilled' && !projectsRes.value.empty) {
+          const remoteProjects = normalizeProjects(
+            projectsRes.value.docs.map((d) => d.data() as VitalizarProject)
+          );
+          setProjects(remoteProjects);
+          localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(remoteProjects));
+        }
+
+        if (galleryRes.status === 'fulfilled' && !galleryRes.value.empty) {
+          const remoteAlbums = normalizeGalleryAlbums(
+            galleryRes.value.docs.map((d) => d.data() as PastEventPhoto)
+          );
+          setGalleryAlbums(remoteAlbums);
+          localStorage.setItem(STORAGE_KEYS.GALLERY, JSON.stringify(remoteAlbums));
+        }
+
+        if (docsRes.status === 'fulfilled' && !docsRes.value.empty) {
+          const remoteDocs = normalizeTransparencyDocs(
+            docsRes.value.docs.map((d) => d.data() as TransparencyDocument)
+          );
+          setTransparencyDocs(remoteDocs);
+          localStorage.setItem(STORAGE_KEYS.TRANSPARENCY, JSON.stringify(remoteDocs));
+        }
+
         setIsFirebaseActive(true);
+      } catch (err) {
+        console.info('Firestore offline ou em fallback local:', err);
       }
     }
     hydrateFromFirestore();
@@ -529,55 +990,6 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   // 9. Toasts
   const [toasts, setToasts] = useState<ToastNotification[]>([]);
-
-  // Sincroniza alterações feitas em outra aba (ex: painel aberto em uma aba e site em outra)
-  useEffect(() => {
-    const handleStorage = (e: StorageEvent) => {
-      if (!e.key || e.newValue === null) return;
-      try {
-        const value = JSON.parse(e.newValue);
-        switch (e.key) {
-          case STORAGE_KEYS.CLUB_INFO:
-            setClubInfoState(normalizeClubInfo(value));
-            break;
-          case STORAGE_KEYS.SITE_SETTINGS:
-            setSiteSettingsState(normalizeSiteSettings(value));
-            break;
-          case STORAGE_KEYS.NEWS:
-            setNewsArticles(normalizeNews(value));
-            break;
-          case STORAGE_KEYS.SPONSORS:
-            setSponsors(value);
-            break;
-          case STORAGE_KEYS.EVENTS:
-            setEvents(value);
-            break;
-          case STORAGE_KEYS.PROJECTS:
-            setProjects(value);
-            break;
-          case STORAGE_KEYS.GALLERY:
-            setGalleryAlbums(value);
-            break;
-          case STORAGE_KEYS.TRANSPARENCY:
-            setTransparencyDocs(value);
-            break;
-          case STORAGE_KEYS.RSVPS:
-            setRsvps(value);
-            break;
-          case STORAGE_KEYS.MESSAGES:
-            setContactMessages(value);
-            break;
-          case STORAGE_KEYS.LOGS:
-            setAuditLogs(value);
-            break;
-        }
-      } catch {
-        // ignora valores corrompidos
-      }
-    };
-    window.addEventListener('storage', handleStorage);
-    return () => window.removeEventListener('storage', handleStorage);
-  }, []);
 
   const showToast = (message: string, type: 'success' | 'info' | 'error' = 'success') => {
     const id = `toast-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
@@ -716,10 +1128,12 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setEvents((prev) => {
       const updated = prev.map((ev) => {
         if (ev.id === rsvpData.eventId) {
-          return withSpotsStatus(
-            { ...ev, availableSpots: Math.max(0, ev.availableSpots - rsvpData.spots) },
-            ev.availableSpots
-          );
+          const newSpots = Math.max(0, ev.availableSpots - rsvpData.spots);
+          return {
+            ...ev,
+            availableSpots: newSpots,
+            status: newSpots === 0 ? 'em_breve' : newSpots <= 5 ? 'vagas_limitadas' : ev.status,
+          };
         }
         return ev;
       });
@@ -952,6 +1366,46 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     showToast('Mensagem excluída.');
   };
 
+  // Scout Inquiries & Space Reservations helpers
+  const addScoutInquiry = (
+    inquiryData: Omit<ScoutInquiryRecord, 'id' | 'protocol' | 'createdAt' | 'status'>
+  ): string => {
+    const protocol = `SCT-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+    const newInquiry: ScoutInquiryRecord = {
+      ...inquiryData,
+      id: `scout-${Date.now()}`,
+      protocol,
+      createdAt: new Date().toLocaleString('pt-BR'),
+      status: 'nova',
+    };
+    setScoutInquiries((prev) => {
+      const updated = [newInquiry, ...prev];
+      localStorage.setItem(STORAGE_KEYS.SCOUT_INQUIRIES, JSON.stringify(updated));
+      return updated;
+    });
+    addAuditLog(
+      'SONDAGem_OLHEIRO_RECEBIDA',
+      `Proposta de captação (${protocol}) de ${inquiryData.scoutName} (${inquiryData.organization}) para ${inquiryData.targetPlayerName || inquiryData.targetCategory}.`
+    );
+    try {
+      setDoc(doc(db, 'scout_inquiries', newInquiry.id), sanitizeForFirestore(newInquiry)).catch(
+        console.warn
+      );
+    } catch {
+      // ignore
+    }
+    return protocol;
+  };
+
+  const deleteScoutInquiry = (id: string) => {
+    setScoutInquiries((prev) => {
+      const updated = prev.filter((item) => item.id !== id);
+      localStorage.setItem(STORAGE_KEYS.SCOUT_INQUIRIES, JSON.stringify(updated));
+      return updated;
+    });
+    showToast('Registro de captação removido.');
+  };
+
   // Reset to Defaults
   const resetAllToDefaults = () => {
     localStorage.removeItem(STORAGE_KEYS.CLUB_INFO);
@@ -962,9 +1416,10 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     localStorage.removeItem(STORAGE_KEYS.PROJECTS);
     localStorage.removeItem(STORAGE_KEYS.GALLERY);
     localStorage.removeItem(STORAGE_KEYS.TRANSPARENCY);
-    // Grava listas vazias (remover a chave faria as inscrições/mensagens de exemplo voltarem ao recarregar)
-    localStorage.setItem(STORAGE_KEYS.RSVPS, '[]');
-    localStorage.setItem(STORAGE_KEYS.MESSAGES, '[]');
+    localStorage.removeItem(STORAGE_KEYS.POLOS);
+    localStorage.removeItem(STORAGE_KEYS.SCOUT_INQUIRIES);
+    localStorage.removeItem(STORAGE_KEYS.RSVPS);
+    localStorage.removeItem(STORAGE_KEYS.MESSAGES);
 
     setClubInfoState(CLUB_INFO);
     setSiteSettingsState(DEFAULT_SITE_SETTINGS);
@@ -974,6 +1429,8 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setProjects(VITALIZAR_PROJECTS);
     setGalleryAlbums(INITIAL_GALLERY_ALBUMS);
     setTransparencyDocs(TRANSPARENCY_DOCUMENTS);
+    setFacilityPolos(FACILITY_POLOS);
+    setScoutInquiries([]);
     setRsvps([]);
     setContactMessages([]);
 
@@ -982,10 +1439,9 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   // Export / Import
-  /** Monta o JSON de backup sem registrar auditoria (usado também para medir o tamanho). */
-  const buildBackupJson = (): string => {
+  const exportDatabaseJson = (): string => {
     const payload = {
-      version: '1.3',
+      version: '1.4',
       exportDate: new Date().toISOString(),
       clubInfo,
       siteSettings,
@@ -995,15 +1451,12 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       projects,
       galleryAlbums,
       transparencyDocs,
+      facilityPolos,
+      scoutInquiries,
       rsvps,
       contactMessages,
     };
     return JSON.stringify(payload, null, 2);
-  };
-
-  const exportDatabaseJson = (): string => {
-    addAuditLog('BACKUP_EXPORTADO', 'Backup completo do site Vitalizar foi exportado.');
-    return buildBackupJson();
   };
 
   const importDatabaseJson = (jsonString: string): { success: boolean; message: string } => {
@@ -1015,39 +1468,53 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
 
       if (parsed.clubInfo) {
-        const info = normalizeClubInfo(parsed.clubInfo);
-        setClubInfoState(info);
-        localStorage.setItem(STORAGE_KEYS.CLUB_INFO, JSON.stringify(info));
+        const normalizedClub = normalizeClubInfo(parsed.clubInfo);
+        setClubInfoState(normalizedClub);
+        localStorage.setItem(STORAGE_KEYS.CLUB_INFO, JSON.stringify(normalizedClub));
       }
       if (parsed.siteSettings) {
-        const mergedSettings = { ...DEFAULT_SITE_SETTINGS, ...parsed.siteSettings };
+        const mergedSettings = normalizeSiteSettings(parsed.siteSettings);
         setSiteSettingsState(mergedSettings);
         localStorage.setItem(STORAGE_KEYS.SITE_SETTINGS, JSON.stringify(mergedSettings));
       }
       if (Array.isArray(parsed.newsArticles)) {
-        const news = normalizeNews(parsed.newsArticles);
-        setNewsArticles(news);
-        localStorage.setItem(STORAGE_KEYS.NEWS, JSON.stringify(news));
+        const normalizedNews = normalizeNewsArticles(parsed.newsArticles);
+        setNewsArticles(normalizedNews);
+        localStorage.setItem(STORAGE_KEYS.NEWS, JSON.stringify(normalizedNews));
       }
       if (Array.isArray(parsed.sponsors)) {
-        setSponsors(parsed.sponsors);
-        localStorage.setItem(STORAGE_KEYS.SPONSORS, JSON.stringify(parsed.sponsors));
+        const normalizedSponsors = normalizeSponsors(parsed.sponsors);
+        setSponsors(normalizedSponsors);
+        localStorage.setItem(STORAGE_KEYS.SPONSORS, JSON.stringify(normalizedSponsors));
       }
       if (Array.isArray(parsed.events)) {
-        setEvents(parsed.events);
-        localStorage.setItem(STORAGE_KEYS.EVENTS, JSON.stringify(parsed.events));
+        const normalizedEvents = normalizeEvents(parsed.events);
+        setEvents(normalizedEvents);
+        localStorage.setItem(STORAGE_KEYS.EVENTS, JSON.stringify(normalizedEvents));
       }
       if (Array.isArray(parsed.projects)) {
-        setProjects(parsed.projects);
-        localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(parsed.projects));
+        const normalizedProjects = normalizeProjects(parsed.projects);
+        setProjects(normalizedProjects);
+        localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(normalizedProjects));
       }
       if (Array.isArray(parsed.galleryAlbums)) {
-        setGalleryAlbums(parsed.galleryAlbums);
-        localStorage.setItem(STORAGE_KEYS.GALLERY, JSON.stringify(parsed.galleryAlbums));
+        const normalizedAlbums = normalizeGalleryAlbums(parsed.galleryAlbums);
+        setGalleryAlbums(normalizedAlbums);
+        localStorage.setItem(STORAGE_KEYS.GALLERY, JSON.stringify(normalizedAlbums));
       }
       if (Array.isArray(parsed.transparencyDocs)) {
-        setTransparencyDocs(parsed.transparencyDocs);
-        localStorage.setItem(STORAGE_KEYS.TRANSPARENCY, JSON.stringify(parsed.transparencyDocs));
+        const normalizedDocs = normalizeTransparencyDocs(parsed.transparencyDocs);
+        setTransparencyDocs(normalizedDocs);
+        localStorage.setItem(STORAGE_KEYS.TRANSPARENCY, JSON.stringify(normalizedDocs));
+      }
+      if (Array.isArray(parsed.facilityPolos)) {
+        const normalizedPolos = normalizeFacilityPolos(parsed.facilityPolos);
+        setFacilityPolos(normalizedPolos);
+        localStorage.setItem(STORAGE_KEYS.POLOS, JSON.stringify(normalizedPolos));
+      }
+      if (Array.isArray(parsed.scoutInquiries)) {
+        setScoutInquiries(parsed.scoutInquiries);
+        localStorage.setItem(STORAGE_KEYS.SCOUT_INQUIRIES, JSON.stringify(parsed.scoutInquiries));
       }
       if (Array.isArray(parsed.rsvps)) {
         setRsvps(parsed.rsvps);
@@ -1092,6 +1559,8 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     projects?: VitalizarProject[];
     galleryAlbums?: PastEventPhoto[];
     transparencyDocs?: TransparencyDocument[];
+    facilityPolos?: FacilityPolo[];
+    scoutInquiries?: ScoutInquiryRecord[];
     rsvps?: EventRsvpRecord[];
     contactMessages?: ContactMessageRecord[];
     logDetails?: string;
@@ -1099,36 +1568,53 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   }): boolean => {
     try {
       if (payload.clubInfo !== undefined) {
-        localStorage.setItem(STORAGE_KEYS.CLUB_INFO, JSON.stringify(payload.clubInfo));
-        setClubInfoState(payload.clubInfo);
+        const safeClub = normalizeClubInfo(payload.clubInfo);
+        localStorage.setItem(STORAGE_KEYS.CLUB_INFO, JSON.stringify(safeClub));
+        setClubInfoState(safeClub);
       }
       if (payload.siteSettings !== undefined) {
-        localStorage.setItem(STORAGE_KEYS.SITE_SETTINGS, JSON.stringify(payload.siteSettings));
-        setSiteSettingsState(payload.siteSettings);
+        const safeSettings = normalizeSiteSettings(payload.siteSettings);
+        localStorage.setItem(STORAGE_KEYS.SITE_SETTINGS, JSON.stringify(safeSettings));
+        setSiteSettingsState(safeSettings);
       }
       if (payload.newsArticles !== undefined) {
-        localStorage.setItem(STORAGE_KEYS.NEWS, JSON.stringify(payload.newsArticles));
-        setNewsArticles(payload.newsArticles);
+        const safeNews = normalizeNewsArticles(payload.newsArticles);
+        localStorage.setItem(STORAGE_KEYS.NEWS, JSON.stringify(safeNews));
+        setNewsArticles(safeNews);
       }
       if (payload.sponsors !== undefined) {
-        localStorage.setItem(STORAGE_KEYS.SPONSORS, JSON.stringify(payload.sponsors));
-        setSponsors(payload.sponsors);
+        const safeSponsors = normalizeSponsors(payload.sponsors);
+        localStorage.setItem(STORAGE_KEYS.SPONSORS, JSON.stringify(safeSponsors));
+        setSponsors(safeSponsors);
       }
       if (payload.events !== undefined) {
-        localStorage.setItem(STORAGE_KEYS.EVENTS, JSON.stringify(payload.events));
-        setEvents(payload.events);
+        const safeEvents = normalizeEvents(payload.events);
+        localStorage.setItem(STORAGE_KEYS.EVENTS, JSON.stringify(safeEvents));
+        setEvents(safeEvents);
       }
       if (payload.projects !== undefined) {
-        localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(payload.projects));
-        setProjects(payload.projects);
+        const safeProjects = normalizeProjects(payload.projects);
+        localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(safeProjects));
+        setProjects(safeProjects);
       }
       if (payload.galleryAlbums !== undefined) {
-        localStorage.setItem(STORAGE_KEYS.GALLERY, JSON.stringify(payload.galleryAlbums));
-        setGalleryAlbums(payload.galleryAlbums);
+        const safeAlbums = normalizeGalleryAlbums(payload.galleryAlbums);
+        localStorage.setItem(STORAGE_KEYS.GALLERY, JSON.stringify(safeAlbums));
+        setGalleryAlbums(safeAlbums);
       }
       if (payload.transparencyDocs !== undefined) {
-        localStorage.setItem(STORAGE_KEYS.TRANSPARENCY, JSON.stringify(payload.transparencyDocs));
-        setTransparencyDocs(payload.transparencyDocs);
+        const safeDocs = normalizeTransparencyDocs(payload.transparencyDocs);
+        localStorage.setItem(STORAGE_KEYS.TRANSPARENCY, JSON.stringify(safeDocs));
+        setTransparencyDocs(safeDocs);
+      }
+      if (payload.facilityPolos !== undefined) {
+        const safePolos = normalizeFacilityPolos(payload.facilityPolos);
+        localStorage.setItem(STORAGE_KEYS.POLOS, JSON.stringify(safePolos));
+        setFacilityPolos(safePolos);
+      }
+      if (payload.scoutInquiries !== undefined) {
+        localStorage.setItem(STORAGE_KEYS.SCOUT_INQUIRIES, JSON.stringify(payload.scoutInquiries));
+        setScoutInquiries(payload.scoutInquiries);
       }
       if (payload.rsvps !== undefined) {
         localStorage.setItem(STORAGE_KEYS.RSVPS, JSON.stringify(payload.rsvps));
@@ -1139,42 +1625,47 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setContactMessages(payload.contactMessages);
       }
 
-      // Asynchronous batch-like sync to Firestore
+      // Asynchronous batch-like sync to Firestore (sanitized to strip undefined properties)
       try {
         if (payload.clubInfo) {
-          setDoc(doc(db, 'club_info', 'main'), payload.clubInfo).catch(console.warn);
+          setDoc(doc(db, 'club_info', 'main'), sanitizeForFirestore(normalizeClubInfo(payload.clubInfo))).catch(console.warn);
         }
         if (payload.siteSettings) {
-          setDoc(doc(db, 'site_settings', 'main'), payload.siteSettings).catch(console.warn);
+          setDoc(doc(db, 'site_settings', 'main'), sanitizeForFirestore(normalizeSiteSettings(payload.siteSettings))).catch(console.warn);
         }
         if (payload.newsArticles) {
           payload.newsArticles.forEach((art) => {
-            setDoc(doc(db, 'news_articles', art.id), art).catch(console.warn);
+            setDoc(doc(db, 'news_articles', art.id), sanitizeForFirestore(art)).catch(console.warn);
           });
         }
         if (payload.sponsors) {
           payload.sponsors.forEach((spon) => {
-            setDoc(doc(db, 'sponsors', spon.id), spon).catch(console.warn);
+            setDoc(doc(db, 'sponsors', spon.id), sanitizeForFirestore(spon)).catch(console.warn);
           });
         }
         if (payload.events) {
           payload.events.forEach((ev) => {
-            setDoc(doc(db, 'events', ev.id), ev).catch(console.warn);
+            setDoc(doc(db, 'events', ev.id), sanitizeForFirestore(ev)).catch(console.warn);
           });
         }
         if (payload.projects) {
           payload.projects.forEach((proj) => {
-            setDoc(doc(db, 'projects', proj.id), proj).catch(console.warn);
+            setDoc(doc(db, 'projects', proj.id), sanitizeForFirestore(proj)).catch(console.warn);
           });
         }
         if (payload.galleryAlbums) {
           payload.galleryAlbums.forEach((alb) => {
-            setDoc(doc(db, 'gallery_albums', alb.id), alb).catch(console.warn);
+            setDoc(doc(db, 'gallery_albums', alb.id), sanitizeForFirestore(alb)).catch(console.warn);
           });
         }
         if (payload.transparencyDocs) {
           payload.transparencyDocs.forEach((d) => {
-            setDoc(doc(db, 'transparency_docs', d.id), d).catch(console.warn);
+            setDoc(doc(db, 'transparency_docs', d.id), sanitizeForFirestore(d)).catch(console.warn);
+          });
+        }
+        if (payload.facilityPolos) {
+          payload.facilityPolos.forEach((polo) => {
+            setDoc(doc(db, 'facility_polos', polo.id), sanitizeForFirestore(polo)).catch(console.warn);
           });
         }
       } catch (firestoreErr) {
@@ -1230,6 +1721,10 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         addTransparencyDoc,
         updateTransparencyDoc,
         deleteTransparencyDoc,
+        facilityPolos,
+        scoutInquiries,
+        addScoutInquiry,
+        deleteScoutInquiry,
         contactMessages,
         addContactMessage,
         markContactMessageRead,
@@ -1239,7 +1734,6 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         clearAuditLogs,
         resetAllToDefaults,
         exportDatabaseJson,
-        buildBackupJson,
         importDatabaseJson,
         saveAdminChanges,
         toasts,
@@ -1250,16 +1744,13 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     >
       {children}
 
-      {/* Floating Global Toasts for Instant UX Feedback (região sempre montada para leitores de tela anunciarem) */}
-      <div
-        role="status"
-        aria-live="polite"
-        className="fixed bottom-5 right-5 z-[100] flex flex-col gap-2 max-w-sm pointer-events-none"
-      >
+      {/* Floating Global Toasts for Instant UX Feedback */}
+      {toasts.length > 0 && (
+        <div className="fixed bottom-5 right-5 z-[100] flex flex-col gap-2 max-w-sm pointer-events-none">
           {toasts.map((toast) => (
             <div
               key={toast.id}
-              className={`pointer-events-auto p-4 rounded-xl shadow-2xl text-xs font-semibold flex items-center justify-between gap-3 text-white border transition-opacity animate-in slide-in-from-bottom-3 duration-200 ${
+              className={`pointer-events-auto p-4 rounded-xl shadow-2xl text-xs font-semibold flex items-center justify-between gap-3 text-white border transition-all animate-in slide-in-from-bottom-3 duration-200 ${
                 toast.type === 'error'
                   ? 'bg-rose-600 border-rose-700'
                   : toast.type === 'info'
@@ -1269,7 +1760,6 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             >
               <span>{toast.message}</span>
               <button
-                type="button"
                 onClick={() => removeToast(toast.id)}
                 className="p-1 hover:bg-white/20 rounded-md transition-colors cursor-pointer"
                 aria-label="Fechar notificação"
@@ -1278,7 +1768,8 @@ export const ClubDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
               </button>
             </div>
           ))}
-      </div>
+        </div>
+      )}
     </ClubDataContext.Provider>
   );
 };
@@ -1290,3 +1781,4 @@ export const useClubData = () => {
   }
   return context;
 };
+

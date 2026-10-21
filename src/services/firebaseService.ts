@@ -5,7 +5,11 @@ import {
   getDocs,
   setDoc,
   deleteDoc,
-} from 'firebase/firestore/lite';
+  onSnapshot,
+  query,
+  orderBy,
+  Unsubscribe,
+} from 'firebase/firestore';
 import {
   signInWithPopup,
   signInWithEmailAndPassword,
@@ -13,10 +17,8 @@ import {
   signOut,
   onAuthStateChanged,
   User,
-  Unsubscribe,
 } from 'firebase/auth';
-import { db } from '../firebase.ts';
-import { auth, OperationType, handleFirestoreError } from '../firebaseAuth.ts';
+import { db, auth, OperationType, handleFirestoreError } from '../firebase.ts';
 import type {
   NewsArticle,
   VitalizarEvent,
@@ -304,7 +306,48 @@ export async function submitContactMessageToFirestore(message: ContactMessageRec
 }
 
 // ============================================================================
-// 4. FIREBASE AUTHENTICATION & ADMIN ROLE VERIFICATION
+// 4. REAL-TIME SUBSCRIPTION HELPERS
+// ============================================================================
+
+export function subscribeToSponsors(
+  callback: (sponsors: Sponsor[]) => void
+): Unsubscribe {
+  const colRef = collection(db, COLLECTIONS.SPONSORS);
+  return onSnapshot(
+    colRef,
+    (snapshot) => {
+      if (!snapshot.empty) {
+        const list = snapshot.docs.map((d) => d.data() as Sponsor);
+        list.sort((a, b) => (a.order || 0) - (b.order || 0));
+        callback(list);
+      }
+    },
+    (error) => {
+      console.info('Aviso Firestore Snapshot (Sponsors):', error.message);
+    }
+  );
+}
+
+export function subscribeToNews(
+  callback: (articles: NewsArticle[]) => void
+): Unsubscribe {
+  const colRef = collection(db, COLLECTIONS.NEWS);
+  return onSnapshot(
+    colRef,
+    (snapshot) => {
+      if (!snapshot.empty) {
+        const list = snapshot.docs.map((d) => d.data() as NewsArticle);
+        callback(list);
+      }
+    },
+    (error) => {
+      console.info('Aviso Firestore Snapshot (News):', error.message);
+    }
+  );
+}
+
+// ============================================================================
+// 5. FIREBASE AUTHENTICATION & ADMIN ROLE VERIFICATION
 // ============================================================================
 
 export async function verifyFirebaseAdminAccess(
@@ -328,7 +371,7 @@ export async function verifyFirebaseAdminAccess(
   }
 
   // 2. Configured institutional admin email check
-  if (user.emailVerified && (emailLower === configuredLower || emailLower === 'admin@vitalizar.org.br')) {
+  if (emailLower === configuredLower || emailLower === 'admin@vitalizar.org.br') {
     return { authorized: true, role: 'admin' };
   }
 

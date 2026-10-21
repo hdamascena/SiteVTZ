@@ -117,6 +117,12 @@ export interface ProjectParticipant {
   id: string;
   name: string;
   nickname?: string;
+  nextfitCode?: string;
+  enrollmentStatus?: 'ativo' | 'trancado' | 'inativo' | 'pendente';
+  modalityOrClass?: string;
+  planName?: string;
+  bmi?: string;
+  lastSyncDate?: string;
   photoUrl: string;
   jerseyNumber: number;
   position: string;
@@ -144,6 +150,26 @@ export interface ProjectParticipant {
   };
   photos: string[];
   videos: PlayerHighlightVideo[];
+}
+
+export interface NextFitCsvAthleteRow {
+  id: string;
+  nextfitCode: string;
+  name: string;
+  age: number;
+  birthDate: string;
+  enrollmentStatus: 'ativo' | 'trancado' | 'inativo' | 'pendente';
+  modalityOrClass: string;
+  planName: string;
+  category: string;
+  position: string;
+  height: string;
+  weight: string;
+  bmi: string;
+  schoolName: string;
+  notes: string;
+  photoUrl: string;
+  targetProjectId?: string;
 }
 
 export interface ProjectFunctioning {
@@ -311,6 +337,133 @@ export interface Sponsor {
   order: number;
 }
 
+export interface HeroSlideConfig {
+  id: string;
+  kicker: string;
+  headline: string;
+  description: string;
+  image: string;
+  caption: string;
+  schedule: string;
+  primaryActionLabel: string;
+  secondaryLabel: string;
+  secondaryTarget: string;
+}
+
+export interface ScoutInquiryRecord {
+  id: string;
+  protocol: string;
+  scoutName: string;
+  organization: string;
+  role: string;
+  credentialsId?: string;
+  phone: string;
+  email: string;
+  inquiryType: 'avaliacao_clube' | 'visita_treino' | 'relatorio_atleta' | 'parceria_base';
+  targetPlayerName?: string;
+  targetCategory: string;
+  preferredDate?: string;
+  message: string;
+  projectName: string;
+  createdAt: string;
+  status: 'nova' | 'em_analise' | 'agendada' | 'concluida';
+}
+
+
+export interface PixDonationConfig {
+  pixKey: string;
+  pixKeyFormatted: string;
+  keyType: 'CNPJ' | 'EMAIL' | 'TELEFONE' | 'ALEATORIA';
+  beneficiaryName: string;
+  city: string;
+  bankName: string;
+  suggestedAmounts: {
+    amount: number;
+    label: string;
+    impactDescription: string;
+  }[];
+}
+
+export interface DonationPledgeRecord {
+  id: string;
+  protocol: string;
+  donorName: string;
+  amount: number;
+  purpose: string;
+  date: string;
+  message?: string;
+  status: 'registrado' | 'confirmado';
+}
+
+export interface MatchResultRecord {
+  id: string;
+  competition: string;
+  category: string;
+  date: string;
+  location: string;
+  homeTeam: string;
+  awayTeam: string;
+  homeScore: number;
+  awayScore: number;
+  status: 'encerrado' | 'agendado';
+  scorers?: string[];
+  mvpPlayerName?: string;
+  projectId?: string;
+}
+
+export interface ClubTrophyRecord {
+  id: string;
+  title: string;
+  competition: string;
+  year: string;
+  category: string;
+  placement:
+    | '1º Lugar - Campeão'
+    | '2º Lugar - Vice-Campeão'
+    | '3º Lugar - Destaque'
+    | 'Troféu Fair Play / Impacto Social';
+  description: string;
+}
+
+export interface VolunteerApplicationRecord {
+  id: string;
+  protocol: string;
+  name: string;
+  area:
+    | 'Educação Física & Esporte'
+    | 'Saúde, Fisio & Nutrição'
+    | 'Psicologia & Serviço Social'
+    | 'Comunicação, Foto & Mídia'
+    | 'Apoio em Eventos & Logística'
+    | 'Mentoria & Educação';
+  availability: string;
+  experience: string;
+  contactInfo: string;
+  motivation: string;
+  createdAt: string;
+  status: 'novo' | 'em_analise' | 'ativo';
+}
+
+export interface AttendanceEntry {
+  participantId: string;
+  participantName: string;
+  nextfitCode?: string;
+  category: string;
+  status: 'presente' | 'falta' | 'justificada';
+  notes?: string;
+}
+
+export interface AttendanceSessionRecord {
+  id: string;
+  projectId: string;
+  projectName: string;
+  date: string;
+  classTopic: string;
+  coordinator: string;
+  entries: AttendanceEntry[];
+  createdAt: string;
+}
+
 export interface SiteSettings {
   newsCategories: string[];
   eventCategories: string[];
@@ -335,7 +488,11 @@ export interface SiteSettings {
   enableSearch: boolean;
   enableRsvpModal: boolean;
   transparencyDashboard?: TransparencyDashboardConfig;
+  heroSlides?: HeroSlideConfig[];
+  pixConfig?: PixDonationConfig;
+  donationPledges?: DonationPledgeRecord[];
+  matchResults?: MatchResultRecord[];
+  clubTrophies?: ClubTrophyRecord[];
+  volunteers?: VolunteerApplicationRecord[];
+  attendanceSessions?: AttendanceSessionRecord[];
 }
-
-
-

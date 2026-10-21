@@ -1,5 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { useDialog } from '../hooks/useDialog.ts';
+import React, { useState, useEffect } from 'react';
 import {
   ShieldAlert,
   ShieldCheck,
@@ -47,11 +46,21 @@ import {
   Tag,
   Megaphone,
   Globe,
+  MapPin,
+  Trophy,
+  UserCheck,
+  ClipboardList,
 } from 'lucide-react';
 import { useClubData } from '../context/ClubDataContext.tsx';
+import { DEFAULT_SITE_SETTINGS } from '../data/clubeData.ts';
+import { NextFitParticipantsManager } from './NextFitParticipantsManager.tsx';
+import { AttendanceManager } from './AttendanceManager.tsx';
+import { AdminCommunityModules } from './AdminCommunityModules.tsx';
 import {
+  validateAdminCredentials,
   isSessionValid,
   validateSecurityPin,
+  validatePasswordStrength,
   AdminCredentials,
   RateLimitState,
   AdminSession,
@@ -63,7 +72,7 @@ import {
   inferFileTypeBadge,
   parseEventIsoDate,
 } from '../utils/fileUpload.ts';
-import { auth } from '../firebaseAuth.ts';
+import { auth } from '../firebase.ts';
 import {
   loginWithGoogleAdmin,
   loginWithEmailPasswordFirebase,
@@ -71,8 +80,6 @@ import {
   logoutFirebaseAuth,
   logoutFirebaseAdmin,
 } from '../services/firebaseService.ts';
-import { withSpotsStatus } from '../utils/eventFilter.ts';
-import { MODALITY_NAMES } from '../utils/feeCalculator.ts';
 import type {
   NewsArticle,
   VitalizarEvent,
@@ -84,56 +91,18 @@ import type {
   Sponsor,
   SponsorTier,
   SiteSettings,
+  FacilityPolo,
+  ScoutInquiryRecord,
+  HeroSlideConfig,
 } from '../types/index.ts';
 
 interface AdminPanelProps {
   onClose: () => void;
 }
 
-/**
- * Rascunho de edição que acompanha os dados publicados enquanto o admin não mexeu nele.
- * Assim, inscrições e mensagens recebidas pelo site com o painel aberto aparecem no painel
- * e não são sobrescritas ao salvar.
- */
-function useSyncedDraft<T>(source: T) {
-  const [draft, setDraft] = useState<T>(source);
-  const baseRef = React.useRef(source);
-  useEffect(() => {
-    if (baseRef.current === source) return;
-    const previousBase = baseRef.current;
-    baseRef.current = source;
-    setDraft((current) =>
-      current === previousBase || JSON.stringify(current) === JSON.stringify(previousBase)
-        ? source
-        : current
-    );
-  }, [source]);
-  return [draft, setDraft] as const;
-}
-
-/** Só envia ao salvar as seções que realmente mudaram em relação ao que está publicado. */
-function changedOrUndefined<T>(next: T, published: T): T | undefined {
-  return isDifferent(next, published) ? next : undefined;
-}
-
-/** Compara por referência primeiro (barato) e só serializa quando as referências diferem. */
-function isDifferent<T>(a: T, b: T): boolean {
-  return a !== b && JSON.stringify(a) !== JSON.stringify(b);
-}
-
-/** Troca dois patrocinadores de posição (por id, funciona com filtro ativo) e renumera a ordem. */
-function swapSponsors(list: Sponsor[], idA: string, idB: string): Sponsor[] {
-  const a = list.find((s) => s.id === idA);
-  const b = list.find((s) => s.id === idB);
-  if (!a || !b) return list;
-  return list
-    .map((s) => (s.id === idA ? b : s.id === idB ? a : s))
-    .map((s, i) => ({ ...s, order: i + 1 }));
-}
-
 const DEFAULT_ADMIN_CREDS: AdminCredentials = {
   email: 'admin@vitalizar.org.br',
-  passwordHashOrPlain: '',
+  passwordHashOrPlain: 'vitalizar2026!',
   securityPin: '140926',
 };
 
@@ -153,7 +122,6 @@ const ImageUploadField: React.FC<ImageUploadFieldProps> = ({
   onChange,
   onError,
 }) => {
-  const fid = React.useId();
   const [isUploading, setIsUploading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
 
@@ -189,7 +157,7 @@ const ImageUploadField: React.FC<ImageUploadFieldProps> = ({
 
   return (
     <div className="space-y-2">
-      <label htmlFor={`${fid}-url`} className="block font-bold text-slate-700 uppercase text-xs">{label}</label>
+      <label className="block font-bold text-slate-700 uppercase text-xs">{label}</label>
       <div
         onDragOver={(e) => {
           e.preventDefault();
@@ -225,16 +193,16 @@ const ImageUploadField: React.FC<ImageUploadFieldProps> = ({
         {/* Upload Button + URL Input */}
         <div className="sm:col-span-8 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <label className="px-3.5 py-2 bg-[#0a1e36] hover:bg-[#0284c7] text-white text-xs font-bold rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1.5 shadow-2xs focus-within:ring-2 focus-within:ring-sky-500 focus-within:ring-offset-1">
+            <label className="px-3.5 py-2 bg-[#0a1e36] hover:bg-[#0284c7] text-white text-xs font-bold rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1.5 shadow-2xs">
               <Upload className="w-3.5 h-3.5 text-[#38bdf8]" />
               <span>
-                {isUploading ? 'Comprimindo…' : 'Enviar ou Arrastar Imagem do Computador'}
+                {isUploading ? 'Comprimindo...' : 'Enviar ou Arrastar Imagem do Computador'}
               </span>
               <input
                 type="file"
                 accept="image/*"
                 onChange={handleFileChange}
-                className="sr-only"
+                className="hidden"
                 disabled={isUploading}
               />
             </label>
@@ -247,13 +215,10 @@ const ImageUploadField: React.FC<ImageUploadFieldProps> = ({
           </div>
 
           <div>
-            <span id={`${fid}-url-hint`} className="text-[11px] text-slate-500 block mb-1">
+            <span className="text-[11px] text-slate-500 block mb-1">
               Ou informe o link externo (URL) da imagem:
             </span>
             <input
-              id={`${fid}-url`}
-              aria-describedby={`${fid}-url-hint`}
-              spellCheck={false}
               type="text"
               value={imageUrl}
               onChange={(e) => onChange(e.target.value)}
@@ -286,7 +251,6 @@ const AttachmentsEditor: React.FC<AttachmentsEditorProps> = ({
   const [externalName, setExternalName] = useState('');
   const [externalUrl, setExternalUrl] = useState('');
   const [showLinkInput, setShowLinkInput] = useState(false);
-  const fid = React.useId();
 
   const processFilesList = async (fileList: FileList) => {
     if (!fileList || fileList.length === 0) return;
@@ -368,15 +332,15 @@ const AttachmentsEditor: React.FC<AttachmentsEditorProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 shrink-0">
-          <label className="px-3 py-1.5 bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-bold rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1.5 shadow-2xs focus-within:ring-2 focus-within:ring-sky-500 focus-within:ring-offset-1">
+          <label className="px-3 py-1.5 bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-bold rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1.5 shadow-2xs">
             <Upload className="w-3.5 h-3.5" />
-            <span>{isUploading ? 'Anexando…' : '+ Anexar Arquivo(s)'}</span>
+            <span>{isUploading ? 'Anexando...' : '+ Anexar Arquivo(s)'}</span>
             <input
               type="file"
               multiple
               accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,image/*"
               onChange={handleFilesSelected}
-              className="sr-only"
+              className="hidden"
               disabled={isUploading}
             />
           </label>
@@ -384,7 +348,6 @@ const AttachmentsEditor: React.FC<AttachmentsEditorProps> = ({
           <button
             type="button"
             onClick={() => setShowLinkInput(!showLinkInput)}
-            aria-expanded={showLinkInput}
             className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 text-xs font-bold rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1"
           >
             <Link2 className="w-3.5 h-3.5 text-[#0284c7]" />
@@ -396,11 +359,10 @@ const AttachmentsEditor: React.FC<AttachmentsEditorProps> = ({
       {showLinkInput && (
         <div className="p-3 bg-white rounded-lg border border-sky-200 grid grid-cols-1 sm:grid-cols-12 gap-2 items-end">
           <div className="sm:col-span-5">
-            <label htmlFor={`${fid}-ext-name`} className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
+            <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
               Nome do Documento
             </label>
             <input
-              id={`${fid}-ext-name`}
               type="text"
               value={externalName}
               onChange={(e) => setExternalName(e.target.value)}
@@ -409,16 +371,14 @@ const AttachmentsEditor: React.FC<AttachmentsEditorProps> = ({
             />
           </div>
           <div className="sm:col-span-5">
-            <label htmlFor={`${fid}-ext-url`} className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
+            <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
               URL do Arquivo
             </label>
             <input
-              id={`${fid}-ext-url`}
               type="url"
-              spellCheck={false}
               value={externalUrl}
               onChange={(e) => setExternalUrl(e.target.value)}
-              placeholder="https://…"
+              placeholder="https://..."
               className="w-full p-2 text-xs bg-slate-50 border border-slate-300 rounded-md"
             />
           </div>
@@ -467,7 +427,6 @@ const AttachmentsEditor: React.FC<AttachmentsEditorProps> = ({
                   rel="noopener noreferrer"
                   className="p-1.5 text-slate-500 hover:text-[#0284c7] hover:bg-sky-50 rounded-md transition-colors"
                   title="Baixar / Visualizar arquivo"
-                  aria-label="Baixar / Visualizar arquivo"
                 >
                   <Download className="w-3.5 h-3.5" />
                 </a>
@@ -476,7 +435,6 @@ const AttachmentsEditor: React.FC<AttachmentsEditorProps> = ({
                   onClick={() => handleRemove(att.id)}
                   className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors cursor-pointer"
                   title="Remover anexo"
-                  aria-label="Remover anexo"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
@@ -503,20 +461,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
     projects,
     galleryAlbums,
     transparencyDocs,
+    facilityPolos,
+    scoutInquiries,
     contactMessages,
     auditLogs,
+    addAuditLog,
     clearAuditLogs,
     resetAllToDefaults,
     exportDatabaseJson,
-    buildBackupJson,
     importDatabaseJson,
     saveAdminChanges,
     showToast,
     isFirebaseActive,
   } = useClubData();
-
-  // Prefixo único para associar <label htmlFor> aos campos do painel
-  const fid = React.useId();
 
   // Authentication State
   const [session, setSession] = useState<AdminSession | null>(() => {
@@ -535,30 +492,69 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
   const [creds, setCreds] = useState<AdminCredentials>(() => {
     try {
       const saved = localStorage.getItem('vitalizar_admin_credentials');
-      // A senha não é mais guardada no navegador: o acesso é feito pela conta Firebase.
-      return saved ? { ...JSON.parse(saved), passwordHashOrPlain: '' } : DEFAULT_ADMIN_CREDS;
+      return saved ? JSON.parse(saved) : DEFAULT_ADMIN_CREDS;
     } catch {
       return DEFAULT_ADMIN_CREDS;
     }
   });
 
   // Staged / Draft States (Only persisted when pressing Save)
-  const [draftClubInfo, setDraftClubInfo] = useSyncedDraft<typeof clubInfo>(clubInfo);
-  const [draftSiteSettings, setDraftSiteSettings] = useSyncedDraft<SiteSettings>(siteSettings);
-  const [draftNews, setDraftNews] = useSyncedDraft<NewsArticle[]>(newsArticles);
-  const [draftSponsors, setDraftSponsors] = useSyncedDraft<Sponsor[]>(sponsors);
-  const [draftEvents, setDraftEvents] = useSyncedDraft<VitalizarEvent[]>(events);
-  const [draftProjects, setDraftProjects] = useSyncedDraft<VitalizarProject[]>(projects);
-  const [draftAlbums, setDraftAlbums] = useSyncedDraft<PastEventPhoto[]>(galleryAlbums);
-  const [draftDocs, setDraftDocs] = useSyncedDraft<TransparencyDocument[]>(transparencyDocs);
-  const [draftRsvps, setDraftRsvps] = useSyncedDraft(rsvps);
-  const [draftMessages, setDraftMessages] = useSyncedDraft(contactMessages);
+  const [draftClubInfo, setDraftClubInfo] = useState<typeof clubInfo>(() => clubInfo);
+  const [draftSiteSettings, setDraftSiteSettings] = useState<SiteSettings>(() => siteSettings);
+  const [draftNews, setDraftNews] = useState<NewsArticle[]>(() => newsArticles);
+  const [draftSponsors, setDraftSponsors] = useState<Sponsor[]>(() => sponsors);
+  const [draftEvents, setDraftEvents] = useState<VitalizarEvent[]>(() => events);
+  const [draftProjects, setDraftProjects] = useState<VitalizarProject[]>(() => projects);
+  const [draftAlbums, setDraftAlbums] = useState<PastEventPhoto[]>(() => galleryAlbums);
+  const [draftDocs, setDraftDocs] = useState<TransparencyDocument[]>(() => transparencyDocs);
+  const [draftPolos, setDraftPolos] = useState<FacilityPolo[]>(() => facilityPolos);
+  const [draftScoutInquiries, setDraftScoutInquiries] = useState<ScoutInquiryRecord[]>(
+    () => scoutInquiries
+  );
+  const [draftRsvps, setDraftRsvps] = useState(() => rsvps);
+  const [draftMessages, setDraftMessages] = useState(() => contactMessages);
   const [draftCreds, setDraftCreds] = useState<AdminCredentials>(() => creds);
   const [unsavedClosePromptOpen, setUnsavedClosePromptOpen] = useState(false);
   const [firebaseUser, setFirebaseUser] = useState(auth.currentUser);
   const [isAuthenticatingFirebase, setIsAuthenticatingFirebase] = useState(false);
 
-  // Os rascunhos de conteúdo são sincronizados por useSyncedDraft, que preserva edições não salvas
+  // Sync draft states when context data changes externally (e.g. after save, reset, or import)
+  useEffect(() => {
+    setDraftClubInfo(clubInfo);
+  }, [clubInfo]);
+  useEffect(() => {
+    setDraftSiteSettings(siteSettings);
+  }, [siteSettings]);
+  useEffect(() => {
+    setDraftNews(newsArticles);
+  }, [newsArticles]);
+  useEffect(() => {
+    setDraftSponsors(sponsors);
+  }, [sponsors]);
+  useEffect(() => {
+    setDraftEvents(events);
+  }, [events]);
+  useEffect(() => {
+    setDraftProjects(projects);
+  }, [projects]);
+  useEffect(() => {
+    setDraftAlbums(galleryAlbums);
+  }, [galleryAlbums]);
+  useEffect(() => {
+    setDraftDocs(transparencyDocs);
+  }, [transparencyDocs]);
+  useEffect(() => {
+    setDraftPolos(facilityPolos);
+  }, [facilityPolos]);
+  useEffect(() => {
+    setDraftScoutInquiries(scoutInquiries);
+  }, [scoutInquiries]);
+  useEffect(() => {
+    setDraftRsvps(rsvps);
+  }, [rsvps]);
+  useEffect(() => {
+    setDraftMessages(contactMessages);
+  }, [contactMessages]);
   useEffect(() => {
     setDraftCreds(creds);
   }, [creds]);
@@ -612,9 +608,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
     | 'patrocinadores'
     | 'eventos'
     | 'projetos'
+    | 'polos'
+    | 'olheiros'
     | 'galeria'
     | 'transparencia'
     | 'inscricoes'
+    | 'comunidade_pix'
     | 'mensagens'
     | 'seguranca'
     | 'backup'
@@ -645,9 +644,36 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
   const [newHighlightText, setNewHighlightText] = useState('');
   const [newPrereqText, setNewPrereqText] = useState('');
 
-  // Projects Editing State
+  // Projects Editing State & Staff/Participants/Attendance Sub-Form State
+  const [projectsSubTab, setProjectsSubTab] = useState<
+    'projetos' | 'participantes' | 'chamada'
+  >('projetos');
+  const [projectsParticipantFilter, setProjectsParticipantFilter] = useState<string>('all');
   const [editingProject, setEditingProject] = useState<VitalizarProject | null>(null);
   const [isCreatingProject, setIsCreatingProject] = useState(false);
+  const [newStaffName, setNewStaffName] = useState('');
+  const [newStaffRole, setNewStaffRole] = useState('');
+  const [newStaffLicense, setNewStaffLicense] = useState('');
+  const [newStaffBio, setNewStaffBio] = useState('');
+  const [newParticipantName, setNewParticipantName] = useState('');
+  const [newParticipantAge, setNewParticipantAge] = useState('14');
+  const [newParticipantRole, setNewParticipantRole] = useState('');
+  const [newParticipantSchool, setNewParticipantSchool] = useState('');
+  const [newParticipantBio, setNewParticipantBio] = useState('');
+  const [newParticipantHighlight, setNewParticipantHighlight] = useState('');
+  const [newRequirementText, setNewRequirementText] = useState('');
+
+  // Polos State
+  const [editingPolo, setEditingPolo] = useState<FacilityPolo | null>(null);
+  const [isCreatingPolo, setIsCreatingPolo] = useState(false);
+  const [newPoloAmenity, setNewPoloAmenity] = useState('');
+  const [newPoloRule, setNewPoloRule] = useState('');
+
+  // Scout Inquiries State
+  const [editingScoutInq, setEditingScoutInq] = useState<ScoutInquiryRecord | null>(null);
+  const [isCreatingScoutInq, setIsCreatingScoutInq] = useState(false);
+  const [scoutInqFilter, setScoutInqFilter] = useState<string>('all');
+  const [scoutInqSearch, setScoutInqSearch] = useState('');
 
   // Gallery Editing State
   const [editingAlbum, setEditingAlbum] = useState<PastEventPhoto | null>(null);
@@ -687,10 +713,29 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
   const [msgSearch, setMsgSearch] = useState('');
   const [msgStatusFilter, setMsgStatusFilter] = useState<'all' | 'unread' | 'read'>('all');
 
+  const [showAdminNewPassword, setShowAdminNewPassword] = useState(false);
   const [showAdminPin, setShowAdminPin] = useState(false);
 
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [importJsonError, setImportJsonError] = useState<string | null>(null);
+
+  // GitHub Repository / File Importer State
+  const [githubRepoUrl, setGithubRepoUrl] = useState('');
+  const [githubBranch, setGithubBranch] = useState('main');
+  const [githubPath, setGithubPath] = useState('');
+  const [githubToken, setGithubToken] = useState('');
+  const [githubLoading, setGithubLoading] = useState(false);
+  const [githubError, setGithubError] = useState<string | null>(null);
+  const [githubItems, setGithubItems] = useState<
+    Array<{
+      name: string;
+      path: string;
+      type: 'file' | 'dir';
+      size: number;
+      download_url: string | null;
+      html_url: string;
+    }>
+  >([]);
 
   // Security confirmation PIN modal
   const [pinPromptOpen, setPinPromptOpen] = useState(false);
@@ -699,30 +744,27 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
   const [pinError, setPinError] = useState(false);
 
   // Dirty / Unsaved Changes Detection
-  // Memoizado e com checagem por referência primeiro: os dados incluem imagens base64,
-  // então serializar tudo a cada tecla digitada deixava o painel lento.
-  const isClubInfoDirty = useMemo(() => isDifferent(draftClubInfo, clubInfo), [draftClubInfo, clubInfo]);
-  const isSiteSettingsDirty = useMemo(
-    () => isDifferent(draftSiteSettings, siteSettings),
-    [draftSiteSettings, siteSettings]
-  );
-  const isNewsDirty = useMemo(() => isDifferent(draftNews, newsArticles), [draftNews, newsArticles]);
-  const isSponsorsDirty = useMemo(() => isDifferent(draftSponsors, sponsors), [draftSponsors, sponsors]);
-  const isEventsDirty = useMemo(() => isDifferent(draftEvents, events), [draftEvents, events]);
-  const isProjectsDirty = useMemo(() => isDifferent(draftProjects, projects), [draftProjects, projects]);
-  const isAlbumsDirty = useMemo(() => isDifferent(draftAlbums, galleryAlbums), [draftAlbums, galleryAlbums]);
-  const isDocsDirty = useMemo(() => isDifferent(draftDocs, transparencyDocs), [draftDocs, transparencyDocs]);
-  const isRsvpsDirty = useMemo(() => isDifferent(draftRsvps, rsvps), [draftRsvps, rsvps]);
-  const isMessagesDirty = useMemo(
-    () => isDifferent(draftMessages, contactMessages),
-    [draftMessages, contactMessages]
-  );
-  const isCredsDirty = useMemo(() => isDifferent(draftCreds, creds), [draftCreds, creds]);
+  const isClubInfoDirty = JSON.stringify(draftClubInfo) !== JSON.stringify(clubInfo);
+  const isSiteSettingsDirty = JSON.stringify(draftSiteSettings) !== JSON.stringify(siteSettings);
+  const isNewsDirty = JSON.stringify(draftNews) !== JSON.stringify(newsArticles);
+  const isSponsorsDirty = JSON.stringify(draftSponsors) !== JSON.stringify(sponsors);
+  const isEventsDirty = JSON.stringify(draftEvents) !== JSON.stringify(events);
+  const isProjectsDirty = JSON.stringify(draftProjects) !== JSON.stringify(projects);
+  const isAlbumsDirty = JSON.stringify(draftAlbums) !== JSON.stringify(galleryAlbums);
+  const isDocsDirty = JSON.stringify(draftDocs) !== JSON.stringify(transparencyDocs);
+  const isPolosDirty = JSON.stringify(draftPolos) !== JSON.stringify(facilityPolos);
+  const isScoutInquiriesDirty =
+    JSON.stringify(draftScoutInquiries) !== JSON.stringify(scoutInquiries);
+  const isRsvpsDirty = JSON.stringify(draftRsvps) !== JSON.stringify(rsvps);
+  const isMessagesDirty = JSON.stringify(draftMessages) !== JSON.stringify(contactMessages);
+  const isCredsDirty = JSON.stringify(draftCreds) !== JSON.stringify(creds);
   const hasOpenModalDraft = Boolean(
     editingNews ||
       editingSponsor ||
       editingEvent ||
       editingProject ||
+      editingPolo ||
+      editingScoutInq ||
       editingAlbum ||
       editingDoc ||
       editingRsvpItem
@@ -737,73 +779,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
     isProjectsDirty ||
     isAlbumsDirty ||
     isDocsDirty ||
+    isPolosDirty ||
+    isScoutInquiriesDirty ||
     isRsvpsDirty ||
     isMessagesDirty ||
     isCredsDirty ||
     hasOpenModalDraft;
-
-  // Avisa o navegador ao fechar/recarregar a aba com alterações não salvas
-  useEffect(() => {
-    if (!hasUnsavedChanges) return;
-    const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
-      e.returnValue = '';
-    };
-    window.addEventListener('beforeunload', onBeforeUnload);
-    return () => window.removeEventListener('beforeunload', onBeforeUnload);
-  }, [hasUnsavedChanges]);
-
-  // Tamanho estimado do backup: só serializa na aba de Backup e quando os dados publicados mudam
-  const backupEstimatedBytes = useMemo(
-    () => (activeTab === 'backup' ? new Blob([buildBackupJson()]).size : 0),
-    // buildBackupJson é recriada a cada render do contexto; os dados abaixo são o que ela serializa
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [
-      activeTab,
-      clubInfo,
-      siteSettings,
-      newsArticles,
-      sponsors,
-      events,
-      projects,
-      galleryAlbums,
-      transparencyDocs,
-      rsvps,
-      contactMessages,
-    ]
-  );
-
-  // Modais acessíveis (Esc fecha, foco preso e devolvido, rolagem travada)
-  const newsDialogRef = useDialog(editingNews !== null, () => {
-    setIsCreatingNews(false);
-    setEditingNews(null);
-  });
-  const sponsorDialogRef = useDialog(editingSponsor !== null, () => {
-    setEditingSponsor(null);
-    setIsCreatingSponsor(false);
-  });
-  const eventDialogRef = useDialog(editingEvent !== null, () => {
-    setIsCreatingEvent(false);
-    setEditingEvent(null);
-  });
-  const projectDialogRef = useDialog(editingProject !== null, () => {
-    setIsCreatingProject(false);
-    setEditingProject(null);
-  });
-  const albumDialogRef = useDialog(editingAlbum !== null, () => {
-    setIsCreatingAlbum(false);
-    setEditingAlbum(null);
-  });
-  const docDialogRef = useDialog(editingDoc !== null, () => {
-    setIsCreatingDoc(false);
-    setEditingDoc(null);
-  });
-  const rsvpDialogRef = useDialog(editingRsvpItem !== null, () => {
-    setEditingRsvpItem(null);
-    setIsCreatingRsvp(false);
-  });
-  const unsavedDialogRef = useDialog(unsavedClosePromptOpen, () => setUnsavedClosePromptOpen(false));
-  const pinDialogRef = useDialog(pinPromptOpen, () => setPinPromptOpen(false));
 
   const handleDiscardAllChanges = () => {
     setDraftClubInfo(clubInfo);
@@ -814,6 +795,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
     setDraftProjects(projects);
     setDraftAlbums(galleryAlbums);
     setDraftDocs(transparencyDocs);
+    setDraftPolos(facilityPolos);
+    setDraftScoutInquiries(scoutInquiries);
     setDraftRsvps(rsvps);
     setDraftMessages(contactMessages);
     setDraftCreds(creds);
@@ -827,6 +810,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
     setNewPrereqText('');
     setEditingProject(null);
     setIsCreatingProject(false);
+    setEditingPolo(null);
+    setIsCreatingPolo(false);
+    setEditingScoutInq(null);
+    setIsCreatingScoutInq(false);
     setEditingAlbum(null);
     setIsCreatingAlbum(false);
     setNewPhotoUrl('');
@@ -845,6 +832,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
     let nextProjects = [...draftProjects];
     let nextAlbums = [...draftAlbums];
     let nextDocs = [...draftDocs];
+    let nextPolos = [...draftPolos];
+    let nextScoutInquiries = [...draftScoutInquiries];
     let nextRsvps = [...draftRsvps];
 
     // 1. Validate & commit open News modal if present
@@ -910,10 +899,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
         showToast('Informe o título da atividade antes de salvar.', 'error');
         return false;
       }
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(editingEvent.date)) {
-        showToast('Informe a data da atividade antes de salvar.', 'error');
-        return false;
-      }
       const mergedHighlights = newHighlightText.trim()
         ? [...(editingEvent.scheduleHighlights || []), newHighlightText.trim()]
         : editingEvent.scheduleHighlights || [];
@@ -924,8 +909,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
       const finalEvent: VitalizarEvent = {
         ...editingEvent,
         id: isCreatingEvent || !editingEvent.id ? `evento-${Date.now()}` : editingEvent.id,
-        ...parseEventIsoDate(editingEvent.date),
-        availableSpots: Math.min(editingEvent.availableSpots, editingEvent.capacity),
         scheduleHighlights: mergedHighlights,
         prerequisites: mergedPrereqs,
       };
@@ -933,10 +916,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
         nextEvents = [finalEvent, ...nextEvents];
       } else {
         nextEvents = nextEvents.map((ev) => (ev.id === finalEvent.id ? finalEvent : ev));
-        // Mantém o título exibido nas inscrições sincronizado com o evento
-        nextRsvps = nextRsvps.map((r) =>
-          r.eventId === finalEvent.id ? { ...r, eventTitle: finalEvent.title } : r
-        );
       }
       setDraftEvents(nextEvents);
       setNewHighlightText('');
@@ -965,6 +944,51 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
       setEditingProject(null);
     }
 
+    // 3b. Validate & commit open Facility Polo modal if present
+    if (editingPolo) {
+      if (!editingPolo.name.trim()) {
+        showToast('Informe o nome do polo esportivo antes de salvar.', 'error');
+        return false;
+      }
+      const finalPolo: FacilityPolo = {
+        ...editingPolo,
+        id: isCreatingPolo || !editingPolo.id ? `polo-${Date.now()}` : editingPolo.id,
+      };
+      if (isCreatingPolo || !editingPolo.id) {
+        nextPolos = [...nextPolos, finalPolo];
+      } else {
+        nextPolos = nextPolos.map((p) => (p.id === finalPolo.id ? finalPolo : p));
+      }
+      setDraftPolos(nextPolos);
+      setIsCreatingPolo(false);
+      setEditingPolo(null);
+    }
+
+    // 3d. Validate & commit open Scout Inquiry modal if present
+    if (editingScoutInq) {
+      if (!(editingScoutInq.scoutName || '').trim()) {
+        showToast('Informe o nome do avaliador/olheiro.', 'error');
+        return false;
+      }
+      const finalInq: ScoutInquiryRecord = {
+        ...editingScoutInq,
+        id: isCreatingScoutInq || !editingScoutInq.id ? `scout-${Date.now()}` : editingScoutInq.id,
+        protocol:
+          editingScoutInq.protocol || `SCT-2026-${Math.floor(1000 + Math.random() * 9000)}`,
+        createdAt: editingScoutInq.createdAt || new Date().toLocaleDateString('pt-BR'),
+      };
+      if (isCreatingScoutInq || !editingScoutInq.id) {
+        nextScoutInquiries = [finalInq, ...nextScoutInquiries];
+      } else {
+        nextScoutInquiries = nextScoutInquiries.map((s) =>
+          s.id === finalInq.id ? finalInq : s
+        );
+      }
+      setDraftScoutInquiries(nextScoutInquiries);
+      setIsCreatingScoutInq(false);
+      setEditingScoutInq(null);
+    }
+
     // 4. Validate & commit open Gallery Album modal if present (auto-including typed photo URL)
     if (editingAlbum) {
       if (!editingAlbum.title.trim()) {
@@ -981,14 +1005,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
           ]
         : editingAlbum.albumPhotos;
 
-      if (!editingAlbum.coverUrl && mergedPhotos.length === 0) {
-        showToast('Adicione ao menos uma foto ou uma imagem de capa ao álbum.', 'error');
-        return false;
-      }
       const finalAlbum: PastEventPhoto = {
         ...editingAlbum,
         id: isCreatingAlbum || !editingAlbum.id ? `album-${Date.now()}` : editingAlbum.id,
-        coverUrl: editingAlbum.coverUrl || mergedPhotos[0]?.url || '',
         albumPhotos:
           mergedPhotos.length > 0
             ? mergedPhotos
@@ -1037,35 +1056,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
         showToast('Preencha o nome e o telefone do participante.', 'error');
         return false;
       }
-      // Devolve as vagas da versão anterior (se houver) e reserva as da nova, mesmo se o evento mudou
-      const previousRsvp =
-        isCreatingRsvp || !editingRsvpItem.id
-          ? undefined
-          : nextRsvps.find((item) => item.id === editingRsvpItem.id);
-      const targetEvent = nextEvents.find((ev) => ev.id === editingRsvpItem.eventId);
-      if (targetEvent) {
-        const freeSpots =
-          targetEvent.availableSpots +
-          (previousRsvp?.eventId === targetEvent.id ? previousRsvp.spots : 0);
-        if (editingRsvpItem.spots > freeSpots) {
-          showToast(`Restam apenas ${freeSpots} vaga(s) em "${targetEvent.title}".`, 'error');
-          return false;
-        }
-      }
-      const applySpots = (eventId: string, delta: number) => {
-        nextEvents = nextEvents.map((ev) =>
-          ev.id === eventId
-            ? withSpotsStatus(
-                {
-                  ...ev,
-                  availableSpots: Math.max(0, Math.min(ev.capacity, ev.availableSpots + delta)),
-                },
-                ev.availableSpots
-              )
-            : ev
-        );
-      };
-
       if (isCreatingRsvp || !editingRsvpItem.id) {
         const newRsvp = {
           ...editingRsvpItem,
@@ -1076,13 +1066,27 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
             `VIT-2026-${Math.floor(1000 + Math.random() * 9000)}`,
         };
         nextRsvps = [newRsvp, ...nextRsvps];
-        applySpots(newRsvp.eventId, -newRsvp.spots);
+        nextEvents = nextEvents.map((ev) =>
+          ev.id === newRsvp.eventId
+            ? { ...ev, availableSpots: Math.max(0, ev.availableSpots - newRsvp.spots) }
+            : ev
+        );
       } else {
+        const previousRsvp = nextRsvps.find((item) => item.id === editingRsvpItem.id);
         nextRsvps = nextRsvps.map((item) =>
           item.id === editingRsvpItem.id ? editingRsvpItem : item
         );
-        if (previousRsvp) applySpots(previousRsvp.eventId, previousRsvp.spots);
-        applySpots(editingRsvpItem.eventId, -editingRsvpItem.spots);
+        if (previousRsvp && previousRsvp.spots !== editingRsvpItem.spots) {
+          const diff = editingRsvpItem.spots - previousRsvp.spots;
+          nextEvents = nextEvents.map((ev) =>
+            ev.id === editingRsvpItem.eventId
+              ? {
+                  ...ev,
+                  availableSpots: Math.max(0, Math.min(ev.capacity, ev.availableSpots - diff)),
+                }
+              : ev
+          );
+        }
       }
       setDraftRsvps(nextRsvps);
       setDraftEvents(nextEvents);
@@ -1096,32 +1100,33 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
         showToast('Informe um e-mail institucional válido na aba Segurança.', 'error');
         return false;
       }
+      const pwdCheck = validatePasswordStrength(draftCreds.passwordHashOrPlain);
+      if (!pwdCheck.valid) {
+        showToast(pwdCheck.reason || 'Senha fraca.', 'error');
+        return false;
+      }
       if (!/^\d{6}$/.test(draftCreds.securityPin.trim())) {
         showToast('O PIN de segurança deve conter exatamente 6 dígitos numéricos.', 'error');
         return false;
       }
-      const credsToStore = { ...draftCreds, passwordHashOrPlain: '' };
-      setCreds(credsToStore);
-      localStorage.setItem('vitalizar_admin_credentials', JSON.stringify(credsToStore));
+      setCreds(draftCreds);
+      localStorage.setItem('vitalizar_admin_credentials', JSON.stringify(draftCreds));
     }
 
     // 8. Persist all data to ClubDataContext, localStorage and Firestore
-    const cleanClubInfo = {
-      ...draftClubInfo,
-      phones: draftClubInfo.phones.map((p) => p.trim()).filter(Boolean),
-    };
-    setDraftClubInfo(cleanClubInfo);
     const savedOk = saveAdminChanges({
-      clubInfo: changedOrUndefined(cleanClubInfo, clubInfo),
-      siteSettings: changedOrUndefined(draftSiteSettings, siteSettings),
-      newsArticles: changedOrUndefined(nextNews, newsArticles),
-      sponsors: changedOrUndefined(nextSponsors, sponsors),
-      events: changedOrUndefined(nextEvents, events),
-      projects: changedOrUndefined(nextProjects, projects),
-      galleryAlbums: changedOrUndefined(nextAlbums, galleryAlbums),
-      transparencyDocs: changedOrUndefined(nextDocs, transparencyDocs),
-      rsvps: changedOrUndefined(nextRsvps, rsvps),
-      contactMessages: changedOrUndefined(draftMessages, contactMessages),
+      clubInfo: draftClubInfo,
+      siteSettings: draftSiteSettings,
+      newsArticles: nextNews,
+      sponsors: nextSponsors,
+      events: nextEvents,
+      projects: nextProjects,
+      galleryAlbums: nextAlbums,
+      transparencyDocs: nextDocs,
+      facilityPolos: nextPolos,
+      scoutInquiries: nextScoutInquiries,
+      rsvps: nextRsvps,
+      contactMessages: draftMessages,
       toastMessage: customToastMessage || 'Alterações salvas no banco de dados e publicadas!',
     });
 
@@ -1154,7 +1159,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
     setIsAuthenticatingFirebase(true);
 
     try {
-      // Acesso somente via Firebase Auth: as regras do Firestore só aceitam escrita de admins autenticados
+      // 1. Attempt Firebase Email/Password Authentication first if configured
       try {
         const fbUser = await loginWithEmailPasswordFirebase(loginEmail, loginPass);
         if (fbUser) {
@@ -1183,9 +1188,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
           return;
         }
       } catch {
-        // Erro de rede/Firebase: cai na mensagem abaixo
+        // Fallback to institutional admin credentials check
       }
-      setLoginError('E-mail ou senha inválidos. Use sua conta Firebase ou entre com o Google.');
+
+      // 2. Institutional Admin Credentials Validation with Rate Limiting
+      const result = validateAdminCredentials(loginEmail, loginPass, creds, rateLimit);
+      setRateLimit(result.updatedRateLimit);
+      localStorage.setItem('vitalizar_admin_ratelimit', JSON.stringify(result.updatedRateLimit));
+
+      if (result.success && result.session) {
+        setSession(result.session);
+        sessionStorage.setItem('vitalizar_admin_session', JSON.stringify(result.session));
+        showToast('Bem-vindo ao Painel de Controle Vitalizar!', 'success');
+      } else {
+        setLoginError(result.reason || 'Credenciais administrativas inválidas.');
+      }
     } finally {
       setIsAuthenticatingFirebase(false);
     }
@@ -1299,16 +1316,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
         });
       }
 
-      // Atualização funcional: preserva o que foi digitado durante o upload
-      setEditingAlbum((prev) =>
-        prev
-          ? {
-              ...prev,
-              coverUrl: prev.coverUrl || uploadedPhotos[0]?.url || '',
-              albumPhotos: [...prev.albumPhotos, ...uploadedPhotos],
-            }
-          : prev
-      );
+      const updatedAlbumPhotos = [...editingAlbum.albumPhotos, ...uploadedPhotos];
+      setEditingAlbum({
+        ...editingAlbum,
+        coverUrl: editingAlbum.coverUrl || uploadedPhotos[0]?.url || '',
+        albumPhotos: updatedAlbumPhotos,
+      });
     } catch (err: any) {
       showToast(err?.message || 'Erro ao processar fotos.', 'error');
     } finally {
@@ -1357,10 +1370,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
           {/* Body / Form */}
           <div className="p-6 sm:p-8 space-y-5">
             {loginError && (
-              <div
-                role="alert"
-                className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-3 text-xs text-rose-800 animate-in shake duration-200"
-              >
+              <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-3 text-xs text-rose-800 animate-in shake duration-200">
                 <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
                 <div>
                   <span className="font-bold block">Falha de Autenticação</span>
@@ -1383,32 +1393,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
             ) : (
               <form onSubmit={handleLogin} className="space-y-4">
                 <div>
-                  <label htmlFor={`${fid}-login-email`} className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
                     E-mail Institucional *
                   </label>
                   <input
-                    id={`${fid}-login-email`}
                     type="email"
-                    name="email"
-                    autoComplete="username"
-                    spellCheck={false}
                     required
                     value={loginEmail}
                     onChange={(e) => setLoginEmail(e.target.value)}
-                    placeholder="e-mail"
+                    placeholder="admin@vitalizar.org.br"
                     className="w-full text-xs p-3 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none"
                   />
                 </div>
 
                 <div>
-                  <label htmlFor={`${fid}-login-pass`} className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
                     Senha de Administrador *
                   </label>
                   <div className="relative">
                     <input
-                      id={`${fid}-login-pass`}
-                      name="password"
-                      autoComplete="current-password"
                       type={showPassword ? 'text' : 'password'}
                       required
                       value={loginPass}
@@ -1435,7 +1438,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   <Unlock className="w-4 h-4 text-[#38bdf8]" />
                   <span>
                     {isAuthenticatingFirebase
-                      ? 'Verificando Credenciais…'
+                      ? 'Verificando Credenciais...'
                       : 'Autenticar com Credenciais'}
                   </span>
                 </button>
@@ -1466,6 +1469,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
                 <span>Acesso Restrito a Administradores</span>
               </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setLoginEmail(creds.email || 'admin@vitalizar.org.br');
+                  setLoginPass(creds.passwordHashOrPlain || 'vitalizar2026!');
+                }}
+                className="text-[#0284c7] hover:underline font-bold cursor-pointer"
+              >
+                Preencher Credencial Admin
+              </button>
             </div>
           </div>
         </div>
@@ -1486,7 +1499,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
             onClick={() => setMobileNavOpen(!mobileNavOpen)}
             className="md:hidden p-1.5 text-sky-200 hover:text-white rounded-lg hover:bg-white/10 cursor-pointer"
             aria-label="Menu administrativo"
-            aria-expanded={mobileNavOpen}
           >
             {mobileNavOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
@@ -1568,6 +1580,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
           <button
             type="button"
+            onClick={() => setActiveTab('backup')}
+            className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-sky-200 hover:text-white text-xs font-bold rounded-lg transition-colors hidden lg:inline-flex items-center gap-1.5 cursor-pointer border border-sky-400/30"
+            title="Importar arquivos de repositório GitHub ou Backup JSON"
+          >
+            <Upload className="w-3.5 h-3.5 text-[#38bdf8]" />
+            <span>Importar do GitHub</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => handleSaveAllAdminChanges()}
             className={`px-3.5 py-1.5 text-xs font-black uppercase tracking-wider rounded-lg transition-all flex items-center gap-1.5 cursor-pointer shadow-sm ${
               hasUnsavedChanges
@@ -1605,7 +1627,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
         {/* Mobile backdrop */}
         {mobileNavOpen && (
           <div
-            aria-hidden="true"
             onClick={() => setMobileNavOpen(false)}
             className="md:hidden fixed inset-0 z-30 bg-black/60 backdrop-blur-2xs"
           />
@@ -1648,7 +1669,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                     badge: draftSponsors.length,
                   },
                   { id: 'eventos', label: 'Calendário & Clínicas', icon: CalendarDays, badge: draftEvents.length },
-                  { id: 'projetos', label: 'Projetos Esportivos', icon: FolderKanban, badge: draftProjects.length },
+                  { id: 'projetos', label: 'Projetos & Elenco', icon: FolderKanban, badge: draftProjects.length },
+                  {
+                    id: 'polos',
+                    label: 'Sedes & Polos',
+                    icon: MapPin,
+                    badge: draftPolos.length,
+                  },
                   { id: 'galeria', label: 'Galeria de Fotos', icon: Camera, badge: draftAlbums.length },
                   { id: 'transparencia', label: 'Transparência & PDFs', icon: FileText, badge: draftDocs.length },
                 ],
@@ -1658,13 +1685,32 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                 items: [
                   { id: 'inscricoes', label: 'Inscrições & RSVPs', icon: Users, badge: draftRsvps.length },
                   {
+                    id: 'comunidade_pix',
+                    label: 'PIX, Jogos & Voluntários',
+                    icon: Trophy,
+                    badge:
+                      (draftSiteSettings.volunteers || []).filter((v) => v.status === 'novo')
+                        .length ||
+                      (draftSiteSettings.donationPledges || []).length ||
+                      null,
+                  },
+                  {
+                    id: 'olheiros',
+                    label: 'Olheiros & Captação',
+                    icon: Trophy,
+                    badge:
+                      draftScoutInquiries.filter((s) => s.status === 'nova').length ||
+                      draftScoutInquiries.length ||
+                      null,
+                  },
+                  {
                     id: 'mensagens',
                     label: 'Contatos & Ouvidoria',
                     icon: Mail,
                     badge: draftMessages.filter((m) => !m.read).length || null,
                   },
                   { id: 'seguranca', label: 'Segurança & Acesso', icon: KeyRound, badge: isCredsDirty ? '•' : null },
-                  { id: 'backup', label: 'Backup & Restauração', icon: RefreshCw, badge: null },
+                  { id: 'backup', label: 'Importação & Backup', icon: FileSpreadsheet, badge: null },
                 ],
               },
             ].map((section) => (
@@ -1678,8 +1724,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   return (
                     <button
                       key={item.id}
-                      type="button"
-                      aria-current={isActive ? 'page' : undefined}
                       onClick={() => {
                         setActiveTab(item.id as any);
                         setMobileNavOpen(false);
@@ -1769,7 +1813,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                     Visão Geral das Informações e Arquivos
                   </h2>
                   <p className="text-xs text-slate-600 mt-1">
-                    Publique matérias com arquivos anexos, atualize projetos esportivos, gerencie álbuns de fotos e anexe documentos oficiais em PDF/DOCX.
+                    Publique matérias com arquivos anexos, atualize projetos esportivos e elencos, gerencie sedes e polos de atendimento, acompanhe olheiros e anexe documentos oficiais MROSC.
                   </p>
                 </div>
 
@@ -1800,6 +1844,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   </button>
                   <button
                     onClick={() => {
+                      setActiveTab('polos');
+                    }}
+                    className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold uppercase rounded-xl transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
+                  >
+                    <MapPin className="w-3.5 h-3.5" />
+                    <span>Sedes & Polos ({draftPolos.length})</span>
+                  </button>
+                  <button
+                    onClick={() => {
                       setActiveTab('transparencia');
                       setIsCreatingDoc(true);
                       setEditingDoc({
@@ -1822,102 +1875,127 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                     className="px-4 py-2 bg-[#0a1e36] hover:bg-[#0d2746] text-white text-xs font-bold uppercase rounded-xl transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
                   >
                     <Settings className="w-3.5 h-3.5 text-[#38bdf8]" />
-                    <span>Configurações & Categorias</span>
+                    <span>Configurações & Hero</span>
                   </button>
                 </div>
               </div>
 
               {/* Metric Cards Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
-                <button
-                  type="button"
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div
                   onClick={() => setActiveTab('eventos')}
-                  className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-sky-300 shadow-xs space-y-2 cursor-pointer transition-all text-left w-full block"
+                  className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-sky-300 shadow-xs space-y-2 cursor-pointer transition-all"
                 >
-                  <span className="flex items-center justify-between text-slate-500">
-                    <span className="text-xs font-bold uppercase">Eventos</span>
+                  <div className="flex items-center justify-between text-slate-500">
+                    <span className="text-xs font-bold uppercase">Eventos & Clínicas</span>
                     <CalendarDays className="w-5 h-5 text-[#0284c7]" />
-                  </span>
-                  <span className="block text-3xl font-black text-[#0a1e36]">{draftEvents.length}</span>
+                  </div>
+                  <div className="text-3xl font-black text-[#0a1e36]">{draftEvents.length}</div>
                   <span className="text-[11px] text-slate-500 block">
-                    Clínicas, oficinas e reuniões
+                    {draftRsvps.length} inscrições confirmadas
                   </span>
-                </button>
+                </div>
 
-                <button
-                  type="button"
+                <div
                   onClick={() => setActiveTab('projetos')}
-                  className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-sky-300 shadow-xs space-y-2 cursor-pointer transition-all text-left w-full block"
+                  className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-sky-300 shadow-xs space-y-2 cursor-pointer transition-all"
                 >
-                  <span className="flex items-center justify-between text-slate-500">
-                    <span className="text-xs font-bold uppercase">Projetos</span>
+                  <div className="flex items-center justify-between text-slate-500">
+                    <span className="text-xs font-bold uppercase">Projetos & Elenco</span>
                     <FolderKanban className="w-5 h-5 text-[#0284c7]" />
-                  </span>
-                  <span className="block text-3xl font-black text-[#0a1e36]">{draftProjects.length}</span>
+                  </div>
+                  <div className="text-3xl font-black text-[#0a1e36]">{draftProjects.length}</div>
                   <span className="text-[11px] text-slate-500 block">
-                    Modalidades e turmas ativas
+                    {draftProjects.reduce((acc, p) => acc + (p.participants?.length || 0), 0)} atletas na vitrine •{' '}
+                    {draftProjects.reduce((acc, p) => acc + (p.staff?.length || 0), 0)} comissão
                   </span>
-                </button>
+                </div>
 
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('noticias')}
-                  className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-sky-300 shadow-xs space-y-2 cursor-pointer transition-all text-left w-full block"
+                <div
+                  onClick={() => setActiveTab('polos')}
+                  className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-sky-300 shadow-xs space-y-2 cursor-pointer transition-all"
                 >
-                  <span className="flex items-center justify-between text-slate-500">
+                  <div className="flex items-center justify-between text-slate-500">
+                    <span className="text-xs font-bold uppercase">Sedes & Polos</span>
+                    <MapPin className="w-5 h-5 text-amber-600" />
+                  </div>
+                  <div className="text-3xl font-black text-[#0a1e36]">{draftPolos.length}</div>
+                  <span className="text-[11px] text-slate-500 block">
+                    Unidades de atendimento comunitário
+                  </span>
+                </div>
+
+                <div
+                  onClick={() => setActiveTab('olheiros')}
+                  className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-sky-300 shadow-xs space-y-2 cursor-pointer transition-all"
+                >
+                  <div className="flex items-center justify-between text-slate-500">
+                    <span className="text-xs font-bold uppercase">Captação & Olheiros</span>
+                    <Trophy className="w-5 h-5 text-emerald-600" />
+                  </div>
+                  <div className="text-3xl font-black text-[#0a1e36]">
+                    {draftScoutInquiries.length}
+                  </div>
+                  <span className="text-[11px] text-slate-500 block">
+                    {draftScoutInquiries.filter((s) => s.status === 'nova').length} novas sondagens de atletas
+                  </span>
+                </div>
+
+                <div
+                  onClick={() => setActiveTab('noticias')}
+                  className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-sky-300 shadow-xs space-y-2 cursor-pointer transition-all"
+                >
+                  <div className="flex items-center justify-between text-slate-500">
                     <span className="text-xs font-bold uppercase">Notícias</span>
                     <Newspaper className="w-5 h-5 text-[#0284c7]" />
-                  </span>
-                  <span className="block text-3xl font-black text-[#0a1e36]">{draftNews.length}</span>
+                  </div>
+                  <div className="text-3xl font-black text-[#0a1e36]">{draftNews.length}</div>
                   <span className="text-[11px] text-slate-500 block">
-                    Artigos e comunicados
+                    Artigos e comunicados oficiais
                   </span>
-                </button>
+                </div>
 
-                <button
-                  type="button"
+                <div
                   onClick={() => setActiveTab('patrocinadores')}
-                  className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-sky-300 shadow-xs space-y-2 cursor-pointer transition-all text-left w-full block"
+                  className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-sky-300 shadow-xs space-y-2 cursor-pointer transition-all"
                 >
-                  <span className="flex items-center justify-between text-slate-500">
+                  <div className="flex items-center justify-between text-slate-500">
                     <span className="text-xs font-bold uppercase">Parcerias</span>
                     <HeartHandshake className="w-5 h-5 text-amber-600" />
-                  </span>
-                  <span className="block text-3xl font-black text-[#0a1e36]">{draftSponsors.length}</span>
+                  </div>
+                  <div className="text-3xl font-black text-[#0a1e36]">{draftSponsors.length}</div>
                   <span className="text-[11px] text-slate-500 block">
                     {draftSponsors.filter((s) => s.active).length} ativos no portal
                   </span>
-                </button>
+                </div>
 
-                <button
-                  type="button"
+                <div
                   onClick={() => setActiveTab('galeria')}
-                  className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-sky-300 shadow-xs space-y-2 cursor-pointer transition-all text-left w-full block"
+                  className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-sky-300 shadow-xs space-y-2 cursor-pointer transition-all"
                 >
-                  <span className="flex items-center justify-between text-slate-500">
+                  <div className="flex items-center justify-between text-slate-500">
                     <span className="text-xs font-bold uppercase">Álbuns de Fotos</span>
                     <Camera className="w-5 h-5 text-[#0284c7]" />
-                  </span>
-                  <span className="block text-3xl font-black text-[#0a1e36]">{draftAlbums.length}</span>
+                  </div>
+                  <div className="text-3xl font-black text-[#0a1e36]">{draftAlbums.length}</div>
                   <span className="text-[11px] text-slate-500 block">
                     {draftAlbums.reduce((acc, a) => acc + a.albumPhotos.length, 0)} fotos publicadas
                   </span>
-                </button>
+                </div>
 
-                <button
-                  type="button"
+                <div
                   onClick={() => setActiveTab('transparencia')}
-                  className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-sky-300 shadow-xs space-y-2 cursor-pointer transition-all text-left w-full block"
+                  className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-sky-300 shadow-xs space-y-2 cursor-pointer transition-all"
                 >
-                  <span className="flex items-center justify-between text-slate-500">
+                  <div className="flex items-center justify-between text-slate-500">
                     <span className="text-xs font-bold uppercase">Transparência</span>
                     <FileText className="w-5 h-5 text-emerald-600" />
-                  </span>
-                  <span className="block text-3xl font-black text-emerald-700">{draftDocs.length}</span>
+                  </div>
+                  <div className="text-3xl font-black text-emerald-700">{draftDocs.length}</div>
                   <span className="text-[11px] text-slate-500 block">
                     Documentos e arquivos MROSC
                   </span>
-                </button>
+                </div>
               </div>
 
               {/* Recent Activity & Logs */}
@@ -1936,11 +2014,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                     {auditLogs.length > 0 && (
                       <button
                         type="button"
-                        onClick={() => {
-                          if (window.confirm('Apagar todo o histórico de auditoria? Esta ação não pode ser desfeita.')) {
-                            clearAuditLogs();
-                          }
-                        }}
+                        onClick={clearAuditLogs}
                         className="text-[11px] font-bold text-slate-400 hover:text-rose-600 cursor-pointer transition-colors"
                       >
                         Limpar Histórico
@@ -1957,7 +2031,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                     >
                       <div>
                         <span className="font-black text-[#0a1e36] uppercase tracking-wide block">
-                          {log.action.replace(/_/g, ' ')}
+                          {(log.action || 'ACAO').replace(/_/g, ' ')}
                         </span>
                         {log.details && <span className="text-slate-600">{log.details}</span>}
                       </div>
@@ -2005,10 +2079,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
               >
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
-                    <label htmlFor={`${fid}-f1`} className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
                       Razão Social
                     </label>
-                    <input id={`${fid}-f1`}
+                    <input
                       type="text"
                       value={draftClubInfo.fullName}
                       onChange={(e) =>
@@ -2019,10 +2093,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   </div>
 
                   <div>
-                    <label htmlFor={`${fid}-f2`} className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
                       Nome Fantasia / Sigla
                     </label>
-                    <input id={`${fid}-f2`}
+                    <input
                       type="text"
                       value={draftClubInfo.tradeName}
                       onChange={(e) =>
@@ -2033,12 +2107,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   </div>
 
                   <div>
-                    <label htmlFor={`${fid}-f3`} className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
                       CNPJ Oficial
                     </label>
-                    <input id={`${fid}-f3`}
+                    <input
                       type="text"
-                      inputMode="numeric"
                       value={draftClubInfo.cnpj}
                       onChange={(e) =>
                         setDraftClubInfo({ ...draftClubInfo, cnpj: e.target.value })
@@ -2050,10 +2123,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
-                    <label htmlFor={`${fid}-f4`} className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
                       Presidente em Exercício
                     </label>
-                    <input id={`${fid}-f4`}
+                    <input
                       type="text"
                       value={draftClubInfo.president}
                       onChange={(e) =>
@@ -2064,10 +2137,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   </div>
 
                   <div>
-                    <label htmlFor={`${fid}-f5`} className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
                       Assessoria Jurídica
                     </label>
-                    <input id={`${fid}-f5`}
+                    <input
                       type="text"
                       value={draftClubInfo.legalCounsel}
                       onChange={(e) =>
@@ -2078,10 +2151,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   </div>
 
                   <div>
-                    <label htmlFor={`${fid}-f6`} className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
                       Data da Consolidação Estatutária
                     </label>
-                    <input id={`${fid}-f6`}
+                    <input
                       type="text"
                       value={draftClubInfo.statuteDate}
                       onChange={(e) =>
@@ -2094,10 +2167,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div className="sm:col-span-1">
-                    <label htmlFor={`${fid}-f7`} className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
                       Endereço da Sede
                     </label>
-                    <input id={`${fid}-f7`}
+                    <input
                       type="text"
                       value={draftClubInfo.address}
                       onChange={(e) =>
@@ -2108,13 +2181,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   </div>
 
                   <div>
-                    <label htmlFor={`${fid}-f8`} className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
                       CEP
                     </label>
-                    <input id={`${fid}-f8`}
+                    <input
                       type="text"
-                      inputMode="numeric"
-                      autoComplete="postal-code"
                       value={draftClubInfo.cep}
                       onChange={(e) =>
                         setDraftClubInfo({ ...draftClubInfo, cep: e.target.value })
@@ -2124,10 +2195,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   </div>
 
                   <div>
-                    <label htmlFor={`${fid}-f9`} className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
                       Município / UF
                     </label>
-                    <input id={`${fid}-f9`}
+                    <input
                       type="text"
                       value={draftClubInfo.municipality}
                       onChange={(e) =>
@@ -2140,18 +2211,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label htmlFor={`${fid}-f10`} className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
                       Telefones / WhatsApp (Separados por vírgula)
                     </label>
-                    <input id={`${fid}-f10`}
+                    <input
                       type="text"
-                      inputMode="tel"
                       value={draftClubInfo.phones.join(', ')}
                       onChange={(e) =>
                         setDraftClubInfo({
                           ...draftClubInfo,
-                          // Não remove espaços ao digitar (limpeza final ocorre ao salvar)
-                          phones: e.target.value.split(',').map((p) => p.trimStart()),
+                          phones: e.target.value.split(',').map((p) => p.trim()),
                         })
                       }
                       className="w-full text-xs p-2.5 bg-slate-50 border border-slate-300 rounded-lg"
@@ -2159,12 +2228,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   </div>
 
                   <div>
-                    <label htmlFor={`${fid}-f11`} className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
                       E-mail Institucional Principal
                     </label>
-                    <input id={`${fid}-f11`}
+                    <input
                       type="email"
-                      spellCheck={false}
                       value={draftClubInfo.email}
                       onChange={(e) =>
                         setDraftClubInfo({ ...draftClubInfo, email: e.target.value })
@@ -2177,10 +2245,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                 {/* Horários de Funcionamento */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-100">
                   <div>
-                    <label htmlFor={`${fid}-f12`} className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
                       Horário da Secretaria / Atendimento
                     </label>
-                    <input id={`${fid}-f12`}
+                    <input
                       type="text"
                       value={draftClubInfo.hours?.secretaria || ''}
                       onChange={(e) =>
@@ -2194,10 +2262,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   </div>
 
                   <div>
-                    <label htmlFor={`${fid}-f13`} className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
                       Horário das Atividades Esportivas
                     </label>
-                    <input id={`${fid}-f13`}
+                    <input
                       type="text"
                       value={draftClubInfo.hours?.activities || ''}
                       onChange={(e) =>
@@ -2214,12 +2282,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                 {/* Redes Sociais */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2 border-t border-slate-100">
                   <div>
-                    <label htmlFor={`${fid}-f14`} className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
                       Link do Instagram
                     </label>
-                    <input id={`${fid}-f14`}
+                    <input
                       type="url"
-                      spellCheck={false}
                       value={draftClubInfo.socials?.instagram || ''}
                       onChange={(e) =>
                         setDraftClubInfo({
@@ -2232,12 +2299,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   </div>
 
                   <div>
-                    <label htmlFor={`${fid}-f15`} className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
                       Link do Facebook
                     </label>
-                    <input id={`${fid}-f15`}
+                    <input
                       type="url"
-                      spellCheck={false}
                       value={draftClubInfo.socials?.facebook || ''}
                       onChange={(e) =>
                         setDraftClubInfo({
@@ -2250,12 +2316,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   </div>
 
                   <div>
-                    <label htmlFor={`${fid}-f16`} className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
                       Link do YouTube
                     </label>
-                    <input id={`${fid}-f16`}
+                    <input
                       type="url"
-                      spellCheck={false}
                       value={draftClubInfo.socials?.youtube || ''}
                       onChange={(e) =>
                         setDraftClubInfo({
@@ -2370,10 +2435,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
                 <div className="grid grid-cols-1 md:grid-cols-12 gap-4 text-xs">
                   <div className="md:col-span-6">
-                    <label htmlFor={`${fid}-f17`} className="block font-bold text-slate-700 uppercase mb-1">
+                    <label className="block font-bold text-slate-700 uppercase mb-1">
                       Texto do Comunicado
                     </label>
-                    <input id={`${fid}-f17`}
+                    <input
                       type="text"
                       value={draftSiteSettings.announcementBanner.text}
                       onChange={(e) =>
@@ -2390,10 +2455,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                     />
                   </div>
                   <div className="md:col-span-3">
-                    <label htmlFor={`${fid}-f18`} className="block font-bold text-slate-700 uppercase mb-1">
+                    <label className="block font-bold text-slate-700 uppercase mb-1">
                       Texto do Botão (Opcional)
                     </label>
-                    <input id={`${fid}-f18`}
+                    <input
                       type="text"
                       value={draftSiteSettings.announcementBanner.linkLabel || ''}
                       onChange={(e) =>
@@ -2410,10 +2475,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                     />
                   </div>
                   <div className="md:col-span-3">
-                    <label htmlFor={`${fid}-f19`} className="block font-bold text-slate-700 uppercase mb-1">
+                    <label className="block font-bold text-slate-700 uppercase mb-1">
                       Destino ao Clicar
                     </label>
-                    <select id={`${fid}-f19`}
+                    <select
                       value={draftSiteSettings.announcementBanner.linkTarget || 'inscricoes'}
                       onChange={(e) =>
                         setDraftSiteSettings({
@@ -2520,7 +2585,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   </div>
 
                   <div className="flex gap-2">
-                    <input aria-label="Nova categoria de notícia"
+                    <input
                       type="text"
                       value={newNewsCategory}
                       onChange={(e) => setNewNewsCategory(e.target.value)}
@@ -2538,7 +2603,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           }
                         }
                       }}
-                      placeholder="Nova categoria de notícia…"
+                      placeholder="Nova categoria de notícia..."
                       className="flex-1 text-xs p-2.5 bg-slate-50 border border-slate-300 rounded-xl"
                     />
                     <button
@@ -2570,7 +2635,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-sky-50 text-[#0a1e36] border border-sky-200 rounded-xl text-xs font-bold"
                       >
                         <span>{cat}</span>
-                        <button aria-label="Remover categoria"
+                        <button
                           type="button"
                           onClick={() =>
                             setDraftSiteSettings({
@@ -2601,7 +2666,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   </div>
 
                   <div className="flex gap-2">
-                    <input aria-label="Nova tag (ex: Futsal, MROSC, Sub-15)"
+                    <input
                       type="text"
                       value={newSiteTag}
                       onChange={(e) => setNewSiteTag(e.target.value)}
@@ -2619,7 +2684,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           }
                         }
                       }}
-                      placeholder="Nova tag (ex: Futsal, MROSC, Sub-15)…"
+                      placeholder="Nova tag (ex: Futsal, MROSC, Sub-15)..."
                       className="flex-1 text-xs p-2.5 bg-slate-50 border border-slate-300 rounded-xl"
                     />
                     <button
@@ -2652,7 +2717,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                       >
                         <span className="text-[#0284c7]">#</span>
                         <span>{tag}</span>
-                        <button aria-label="Remover tag"
+                        <button
                           type="button"
                           onClick={() =>
                             setDraftSiteSettings({
@@ -2683,11 +2748,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   </div>
 
                   <div className="flex gap-2">
-                    <input aria-label="Novo termo sugerido na busca"
+                    <input
                       type="text"
                       value={newSearchSuggestion}
                       onChange={(e) => setNewSearchSuggestion(e.target.value)}
-                      placeholder="Novo termo sugerido na busca…"
+                      placeholder="Novo termo sugerido na busca..."
                       className="flex-1 text-xs p-2.5 bg-slate-50 border border-slate-300 rounded-xl"
                     />
                     <button
@@ -2727,7 +2792,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                               ),
                             })
                           }
-                          aria-label={`Remover sugestão ${sug}`}
                           className="text-slate-400 hover:text-rose-600 font-black cursor-pointer"
                         >
                           ✕
@@ -2750,11 +2814,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   </div>
 
                   <div className="flex gap-2">
-                    <input aria-label="Novo assunto de atendimento"
+                    <input
                       type="text"
                       value={newContactSubject}
                       onChange={(e) => setNewContactSubject(e.target.value)}
-                      placeholder="Novo assunto de atendimento…"
+                      placeholder="Novo assunto de atendimento..."
                       className="flex-1 text-xs p-2.5 bg-slate-50 border border-slate-300 rounded-xl"
                     />
                     <button
@@ -2794,7 +2858,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                               ),
                             })
                           }
-                          aria-label={`Remover assunto ${subj}`}
                           className="text-slate-400 hover:text-rose-600 font-black cursor-pointer"
                         >
                           ✕
@@ -2822,11 +2885,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         Categorias de Eventos:
                       </span>
                       <div className="flex gap-2 mb-2">
-                        <input aria-label="Nova categoria de evento"
+                        <input
                           type="text"
                           value={newEventCategory}
                           onChange={(e) => setNewEventCategory(e.target.value)}
-                          placeholder="Nova categoria de evento…"
+                          placeholder="Nova categoria de evento..."
                           className="flex-1 text-xs p-2 bg-slate-50 border border-slate-300 rounded-lg"
                         />
                         <button
@@ -2842,7 +2905,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                               setNewEventCategory('');
                             }
                           }}
-                          aria-label="Adicionar categoria de evento"
                           className="px-3 py-1.5 bg-[#0284c7] text-white text-xs font-bold rounded-lg cursor-pointer"
                         >
                           +
@@ -2865,7 +2927,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                   ),
                                 })
                               }
-                              aria-label={`Remover categoria ${cat}`}
                               className="text-slate-400 hover:text-rose-600 font-black cursor-pointer"
                             >
                               ✕
@@ -2880,11 +2941,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         Categorias de Projetos:
                       </span>
                       <div className="flex gap-2 mb-2">
-                        <input aria-label="Nova categoria de projeto"
+                        <input
                           type="text"
                           value={newProjectCategory}
                           onChange={(e) => setNewProjectCategory(e.target.value)}
-                          placeholder="Nova categoria de projeto…"
+                          placeholder="Nova categoria de projeto..."
                           className="flex-1 text-xs p-2 bg-slate-50 border border-slate-300 rounded-lg"
                         />
                         <button
@@ -2900,7 +2961,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                               setNewProjectCategory('');
                             }
                           }}
-                          aria-label="Adicionar categoria de projeto"
                           className="px-3 py-1.5 bg-[#0284c7] text-white text-xs font-bold rounded-lg cursor-pointer"
                         >
                           +
@@ -2923,7 +2983,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                   ),
                                 })
                               }
-                              aria-label={`Remover categoria ${cat}`}
                               className="text-slate-400 hover:text-rose-600 font-black cursor-pointer"
                             >
                               ✕
@@ -2948,11 +3007,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   </div>
 
                   <div className="flex gap-2">
-                    <input aria-label="Nova categoria de álbum"
+                    <input
                       type="text"
                       value={newGalleryCategory}
                       onChange={(e) => setNewGalleryCategory(e.target.value)}
-                      placeholder="Nova categoria de álbum…"
+                      placeholder="Nova categoria de álbum..."
                       className="flex-1 text-xs p-2.5 bg-slate-50 border border-slate-300 rounded-xl"
                     />
                     <button
@@ -2991,7 +3050,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                               ),
                             })
                           }
-                          aria-label={`Remover categoria ${cat}`}
                           className="text-slate-400 hover:text-rose-600 font-black cursor-pointer"
                         >
                           ✕
@@ -2999,6 +3057,222 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                       </span>
                     ))}
                   </div>
+                </div>
+              </div>
+
+              {/* Editor de Slides do Carrossel Principal (Hero) */}
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-[#0284c7]">
+                      Vitrine Principal da Capa
+                    </span>
+                    <h3 className="font-black text-base text-[#0a1e36] uppercase mt-0.5">
+                      Slides do Carrossel Principal (Hero) ({(draftSiteSettings.heroSlides || []).length})
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Personalize os títulos, chamadas, horários, legendas e fotos de fundo do carrossel principal no topo da página inicial.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const currentSlides = draftSiteSettings.heroSlides || [];
+                      const newSlide: HeroSlideConfig = {
+                        id: `slide-${Date.now()}`,
+                        kicker: 'Associação Esportiva Vitalizar · Cariacica/ES',
+                        headline: 'NOVO DESTAQUE INSTITUCIONAL OU PROJETO ESPORTIVO',
+                        description:
+                          'Descreva o impacto comunitário, horários das turmas ou chamada para inscrições gratuitas.',
+                        image:
+                          'https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=1600&q=85',
+                        caption: 'Polo Rio Marinho · Cariacica/ES',
+                        schedule: 'Segundas a Sextas • Vagas gratuitas',
+                        primaryActionLabel: 'Inscrever-se Agora',
+                        secondaryLabel: 'Conhecer Projetos',
+                        secondaryTarget: '#projetos',
+                      };
+                      setDraftSiteSettings({
+                        ...draftSiteSettings,
+                        heroSlides: [...currentSlides, newSlide],
+                      });
+                    }}
+                    className="px-4 py-2 bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-bold uppercase rounded-xl cursor-pointer flex items-center gap-1.5 self-start sm:self-auto"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>+ Adicionar Slide</span>
+                  </button>
+                </div>
+
+                <div className="space-y-4">
+                  {(draftSiteSettings.heroSlides || []).map((slide, sIdx) => (
+                    <div
+                      key={slide.id || sIdx}
+                      className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-4 text-xs"
+                    >
+                      <div className="flex items-center justify-between border-b border-slate-200 pb-2.5">
+                        <span className="font-black text-xs uppercase text-[#0a1e36] bg-white px-3 py-1 rounded-lg border border-slate-200">
+                          Slide #{sIdx + 1} — {slide.headline.slice(0, 48)}
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            disabled={sIdx === 0}
+                            onClick={() => {
+                              const arr = [...(draftSiteSettings.heroSlides || [])];
+                              const tmp = arr[sIdx - 1];
+                              arr[sIdx - 1] = arr[sIdx];
+                              arr[sIdx] = tmp;
+                              setDraftSiteSettings({ ...draftSiteSettings, heroSlides: arr });
+                            }}
+                            className="p-1.5 bg-white hover:bg-slate-100 disabled:opacity-40 border border-slate-200 rounded-lg cursor-pointer"
+                            title="Mover slide para cima"
+                          >
+                            <ArrowUp className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={sIdx === (draftSiteSettings.heroSlides?.length || 1) - 1}
+                            onClick={() => {
+                              const arr = [...(draftSiteSettings.heroSlides || [])];
+                              const tmp = arr[sIdx + 1];
+                              arr[sIdx + 1] = arr[sIdx];
+                              arr[sIdx] = tmp;
+                              setDraftSiteSettings({ ...draftSiteSettings, heroSlides: arr });
+                            }}
+                            className="p-1.5 bg-white hover:bg-slate-100 disabled:opacity-40 border border-slate-200 rounded-lg cursor-pointer"
+                            title="Mover slide para baixo"
+                          >
+                            <ArrowDown className="w-3.5 h-3.5" />
+                          </button>
+                          {(draftSiteSettings.heroSlides?.length || 0) > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const arr = (draftSiteSettings.heroSlides || []).filter(
+                                  (_, idx) => idx !== sIdx
+                                );
+                                setDraftSiteSettings({ ...draftSiteSettings, heroSlides: arr });
+                              }}
+                              className="p-1.5 bg-white hover:bg-rose-50 text-rose-600 border border-slate-200 rounded-lg cursor-pointer"
+                              title="Remover slide"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block font-bold text-slate-700 uppercase mb-1">
+                            Selo Superior (Kicker)
+                          </label>
+                          <input
+                            type="text"
+                            value={slide.kicker}
+                            onChange={(e) => {
+                              const arr = [...(draftSiteSettings.heroSlides || [])];
+                              arr[sIdx] = { ...slide, kicker: e.target.value };
+                              setDraftSiteSettings({ ...draftSiteSettings, heroSlides: arr });
+                            }}
+                            className="w-full p-2 bg-white border border-slate-300 rounded-lg"
+                          />
+                        </div>
+                        <div>
+                          <label className="block font-bold text-slate-700 uppercase mb-1">
+                            Título Principal em Caixa Alta (Headline) *
+                          </label>
+                          <input
+                            type="text"
+                            value={slide.headline}
+                            onChange={(e) => {
+                              const arr = [...(draftSiteSettings.heroSlides || [])];
+                              arr[sIdx] = { ...slide, headline: e.target.value };
+                              setDraftSiteSettings({ ...draftSiteSettings, heroSlides: arr });
+                            }}
+                            className="w-full p-2 bg-white border border-slate-300 rounded-lg font-bold"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block font-bold text-slate-700 uppercase mb-1">
+                          Descrição do Slide
+                        </label>
+                        <textarea
+                          rows={2}
+                          value={slide.description}
+                          onChange={(e) => {
+                            const arr = [...(draftSiteSettings.heroSlides || [])];
+                            arr[sIdx] = { ...slide, description: e.target.value };
+                            setDraftSiteSettings({ ...draftSiteSettings, heroSlides: arr });
+                          }}
+                          className="w-full p-2 bg-white border border-slate-300 rounded-lg"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div>
+                          <label className="block font-bold text-slate-700 uppercase mb-1">
+                            Legenda do Local / Foto
+                          </label>
+                          <input
+                            type="text"
+                            value={slide.caption}
+                            onChange={(e) => {
+                              const arr = [...(draftSiteSettings.heroSlides || [])];
+                              arr[sIdx] = { ...slide, caption: e.target.value };
+                              setDraftSiteSettings({ ...draftSiteSettings, heroSlides: arr });
+                            }}
+                            className="w-full p-2 bg-white border border-slate-300 rounded-lg"
+                          />
+                        </div>
+                        <div>
+                          <label className="block font-bold text-slate-700 uppercase mb-1">
+                            Resumo de Dias / Horários
+                          </label>
+                          <input
+                            type="text"
+                            value={slide.schedule}
+                            onChange={(e) => {
+                              const arr = [...(draftSiteSettings.heroSlides || [])];
+                              arr[sIdx] = { ...slide, schedule: e.target.value };
+                              setDraftSiteSettings({ ...draftSiteSettings, heroSlides: arr });
+                            }}
+                            className="w-full p-2 bg-white border border-slate-300 rounded-lg"
+                          />
+                        </div>
+                        <div>
+                          <label className="block font-bold text-slate-700 uppercase mb-1">
+                            Texto do Botão Principal
+                          </label>
+                          <input
+                            type="text"
+                            value={slide.primaryActionLabel}
+                            onChange={(e) => {
+                              const arr = [...(draftSiteSettings.heroSlides || [])];
+                              arr[sIdx] = { ...slide, primaryActionLabel: e.target.value };
+                              setDraftSiteSettings({ ...draftSiteSettings, heroSlides: arr });
+                            }}
+                            className="w-full p-2 bg-white border border-slate-300 rounded-lg"
+                          />
+                        </div>
+                      </div>
+
+                      <ImageUploadField
+                        label={`Imagem de Fundo do Slide #${sIdx + 1}`}
+                        imageUrl={slide.image}
+                        onChange={(newUrl) => {
+                          const arr = [...(draftSiteSettings.heroSlides || [])];
+                          arr[sIdx] = { ...slide, image: newUrl };
+                          setDraftSiteSettings({ ...draftSiteSettings, heroSlides: arr });
+                        }}
+                        onError={(msg) => showToast(msg, 'error')}
+                      />
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
@@ -3064,17 +3338,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                 <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row gap-3 items-center justify-between">
                   <div className="relative w-full sm:w-80">
                     <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input aria-label="Buscar notícia por título ou resumo"
-                      type="search"
+                    <input
+                      type="text"
                       value={newsSearch}
                       onChange={(e) => setNewsSearch(e.target.value)}
-                      placeholder="Buscar notícia por título ou resumo…"
+                      placeholder="Buscar notícia por título ou resumo..."
                       className="w-full text-xs pl-9 pr-8 py-2 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none"
                     />
                     {newsSearch && (
                       <button
-                        type="button"
-                        aria-label="Limpar busca"
                         onClick={() => setNewsSearch('')}
                         className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                       >
@@ -3084,10 +3356,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   </div>
 
                   <div className="flex items-center gap-2 w-full sm:w-auto">
-                    <label htmlFor={`${fid}-f20`} className="text-xs font-bold text-slate-600 whitespace-nowrap">
+                    <label className="text-xs font-bold text-slate-600 whitespace-nowrap">
                       Categoria:
                     </label>
-                    <select id={`${fid}-f20`}
+                    <select
                       value={newsCategoryFilter}
                       onChange={(e) => setNewsCategoryFilter(e.target.value)}
                       className="text-xs p-2 bg-slate-50 border border-slate-300 rounded-xl"
@@ -3110,19 +3382,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                 {/* News Create/Edit Modal with Block Editor, File Attachments & Live Preview */}
                 {(isCreatingNews || editingNews) && editingNews && (
                   <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
-                    <div
-                      ref={newsDialogRef}
-                      role="dialog"
-                      aria-modal="true"
-                      aria-labelledby={`${fid}-news-title`}
-                      className="bg-white rounded-2xl max-w-4xl w-full p-6 shadow-2xl border border-slate-200 space-y-5 max-h-[92vh] overflow-y-auto"
-                    >
+                    <div className="bg-white rounded-2xl max-w-4xl w-full p-6 shadow-2xl border border-slate-200 space-y-5 max-h-[92vh] overflow-y-auto">
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-3">
                         <div>
                           <span className="text-[10px] font-bold text-[#0284c7] uppercase">
                             Editor Editorial & Anexos
                           </span>
-                          <h3 id={`${fid}-news-title`} className="font-black text-base text-[#0a1e36] uppercase">
+                          <h3 className="font-black text-base text-[#0a1e36] uppercase">
                             {isCreatingNews ? 'Publicar Nova Matéria' : 'Editar Matéria'}
                           </h3>
                         </div>
@@ -3132,7 +3398,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                             <button
                               type="button"
                               onClick={() => setNewsEditorMode('blocks')}
-                              aria-pressed={newsEditorMode === 'blocks'}
                               className={`px-3 py-1 rounded-lg cursor-pointer transition-colors ${
                                 newsEditorMode === 'blocks'
                                   ? 'bg-[#0a1e36] text-white'
@@ -3144,7 +3409,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                             <button
                               type="button"
                               onClick={() => setNewsEditorMode('raw')}
-                              aria-pressed={newsEditorMode === 'raw'}
                               className={`px-3 py-1 rounded-lg cursor-pointer transition-colors ${
                                 newsEditorMode === 'raw'
                                   ? 'bg-[#0a1e36] text-white'
@@ -3156,7 +3420,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                             <button
                               type="button"
                               onClick={() => setNewsEditorMode('preview')}
-                              aria-pressed={newsEditorMode === 'preview'}
                               className={`px-3 py-1 rounded-lg cursor-pointer transition-colors ${
                                 newsEditorMode === 'preview'
                                   ? 'bg-[#0284c7] text-white'
@@ -3168,8 +3431,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           </div>
 
                           <button
-                            type="button"
-                            aria-label="Fechar"
                             onClick={() => {
                               setIsCreatingNews(false);
                               setEditingNews(null);
@@ -3202,7 +3463,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                             {editingNews.title || 'Título da Matéria'}
                           </h2>
                           <p className="text-sm font-semibold text-slate-600 border-b border-slate-200 pb-3">
-                            {editingNews.summary || 'Resumo da matéria…'}
+                            {editingNews.summary || 'Resumo da matéria...'}
                           </p>
                           <div className="space-y-3 text-sm text-slate-700 leading-relaxed">
                             {(editingNews.content || []).map((p, idx) => (
@@ -3233,25 +3494,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         <div className="space-y-4 text-xs">
                           <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
                             <div className="sm:col-span-8">
-                              <label htmlFor={`${fid}-f21`} className="block font-bold text-slate-700 uppercase mb-1">
+                              <label className="block font-bold text-slate-700 uppercase mb-1">
                                 Título da Matéria *
                               </label>
-                              <input id={`${fid}-f21`}
+                              <input
                                 type="text"
                                 value={editingNews.title}
                                 onChange={(e) =>
                                   setEditingNews({ ...editingNews, title: e.target.value })
                                 }
-                                placeholder="Digite o título principal da notícia…"
+                                placeholder="Digite o título principal da notícia..."
                                 className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg font-semibold"
                               />
                             </div>
 
                             <div className="sm:col-span-4">
-                              <label htmlFor={`${fid}-f22`} className="block font-bold text-slate-700 uppercase mb-1">
+                              <label className="block font-bold text-slate-700 uppercase mb-1">
                                 Data / Hora de Publicação
                               </label>
-                              <input id={`${fid}-f22`}
+                              <input
                                 type="text"
                                 value={editingNews.date}
                                 onChange={(e) =>
@@ -3264,10 +3525,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div>
-                              <label htmlFor={`${fid}-f23`} className="block font-bold text-slate-700 uppercase mb-1">
+                              <label className="block font-bold text-slate-700 uppercase mb-1">
                                 Categoria Editorial *
                               </label>
-                              <select id={`${fid}-f23`}
+                              <select
                                 value={editingNews.category}
                                 onChange={(e) =>
                                   setEditingNews({ ...editingNews, category: e.target.value })
@@ -3288,10 +3549,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                             </div>
 
                             <div>
-                              <label htmlFor={`${fid}-f24`} className="block font-bold text-slate-700 uppercase mb-1">
+                              <label className="block font-bold text-slate-700 uppercase mb-1">
                                 Autor / Fonte
                               </label>
-                              <input id={`${fid}-f24`}
+                              <input
                                 type="text"
                                 value={editingNews.author || ''}
                                 onChange={(e) =>
@@ -3305,15 +3566,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           {/* Tags Selection for Article */}
                           <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
                             <div className="flex items-center justify-between">
-                              <span className="block font-bold text-slate-700 uppercase">
+                              <label className="block font-bold text-slate-700 uppercase">
                                 Tags da Matéria ({(editingNews.tags || []).length} selecionadas)
-                              </span>
+                              </label>
                               <div className="flex items-center gap-1.5">
-                                <input aria-label="Nova tag"
+                                <input
                                   type="text"
                                   value={newArticleTagInput}
                                   onChange={(e) => setNewArticleTagInput(e.target.value)}
-                                  placeholder="Nova tag…"
+                                  placeholder="Nova tag..."
                                   className="text-xs px-2.5 py-1 bg-white border border-slate-300 rounded-lg w-36"
                                 />
                                 <button
@@ -3355,7 +3616,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                   <button
                                     key={tag}
                                     type="button"
-                                    aria-pressed={isSelected}
                                     onClick={() => {
                                       const currentTags = editingNews.tags || [];
                                       setEditingNews({
@@ -3379,16 +3639,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           </div>
 
                           <div>
-                            <label htmlFor={`${fid}-f25`} className="block font-bold text-slate-700 uppercase mb-1">
+                            <label className="block font-bold text-slate-700 uppercase mb-1">
                               Resumo / Linha Fina (Exibido nos cards da capa) *
                             </label>
-                            <textarea id={`${fid}-f25`}
+                            <textarea
                               rows={2}
                               value={editingNews.summary}
                               onChange={(e) =>
                                 setEditingNews({ ...editingNews, summary: e.target.value })
                               }
-                              placeholder="Breve síntese da notícia em 1 ou 2 frases…"
+                              placeholder="Breve síntese da notícia em 1 ou 2 frases..."
                               className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg"
                             />
                           </div>
@@ -3406,9 +3666,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           {/* Content Editor: Blocks Mode vs Raw Text Mode */}
                           <div className="space-y-2 pt-2 border-t border-slate-200">
                             <div className="flex flex-wrap items-center justify-between gap-2">
-                              <span className="block font-bold text-slate-700 uppercase">
+                              <label className="block font-bold text-slate-700 uppercase">
                                 Corpo da Matéria ({editingNews.content?.length || 0} parágrafos)
-                              </span>
+                              </label>
 
                               <div className="flex flex-wrap items-center gap-1.5">
                                 <button
@@ -3467,7 +3727,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                       §{pIdx + 1}
                                     </span>
                                     <textarea
-                                      aria-label={`Parágrafo ${pIdx + 1}`}
                                       rows={2}
                                       value={paragraph}
                                       onChange={(e) => {
@@ -3475,11 +3734,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                         updated[pIdx] = e.target.value;
                                         setEditingNews({ ...editingNews, content: updated });
                                       }}
-                                      placeholder={`Texto do parágrafo ${pIdx + 1}…`}
+                                      placeholder={`Texto do parágrafo ${pIdx + 1}...`}
                                       className="flex-1 p-2 bg-white border border-slate-300 rounded-lg text-xs leading-relaxed"
                                     />
                                     <div className="flex flex-col gap-1 shrink-0">
-                                      <button aria-label="Mover para cima"
+                                      <button
                                         type="button"
                                         disabled={pIdx === 0}
                                         onClick={() => {
@@ -3494,7 +3753,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                       >
                                         <ArrowUp className="w-3 h-3" />
                                       </button>
-                                      <button aria-label="Mover para baixo"
+                                      <button
                                         type="button"
                                         disabled={pIdx === (editingNews.content?.length || 1) - 1}
                                         onClick={() => {
@@ -3509,7 +3768,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                       >
                                         <ArrowDown className="w-3 h-3" />
                                       </button>
-                                      <button aria-label="Remover parágrafo"
+                                      <button
                                         type="button"
                                         onClick={() => {
                                           const updated = (editingNews.content || []).filter(
@@ -3531,7 +3790,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                               </div>
                             ) : (
                               <textarea
-                                aria-label="Corpo da matéria (texto livre)"
                                 rows={7}
                                 value={editingNews.content?.join('\n\n') || ''}
                                 onChange={(e) =>
@@ -3540,7 +3798,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                     content: e.target.value.split('\n\n'),
                                   })
                                 }
-                                placeholder="Separe os parágrafos com uma linha em branco (Enter duas vezes)…"
+                                placeholder="Separe os parágrafos com uma linha em branco (Enter duas vezes)..."
                                 className="w-full p-3 bg-slate-50 border border-slate-300 rounded-lg font-mono text-xs leading-relaxed"
                               />
                             )}
@@ -3639,7 +3897,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                             <Edit3 className="w-3.5 h-3.5" />
                             <span>Editar</span>
                           </button>
-                          <button aria-label="Duplicar notícia (salva ao confirmar no modal)"
+                          <button
                             onClick={() => {
                               setIsCreatingNews(true);
                               setNewsEditorMode('blocks');
@@ -3656,7 +3914,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           >
                             <Copy className="w-3.5 h-3.5" />
                           </button>
-                          <button aria-label="Excluir notícia"
+                          <button
                             onClick={() => {
                               requestPinProtectedAction(() => {
                                 setDraftNews((prev) => prev.filter((item) => item.id !== article.id));
@@ -3742,11 +4000,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
                   <div className="relative flex-1 max-w-md">
                     <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input aria-label="Buscar por nome, categoria ou descrição"
-                      type="search"
+                    <input
+                      type="text"
                       value={sponsorSearch}
                       onChange={(e) => setSponsorSearch(e.target.value)}
-                      placeholder="Buscar por nome, categoria ou descrição…"
+                      placeholder="Buscar por nome, categoria ou descrição..."
                       className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-sky-500 focus:outline-none"
                     />
                   </div>
@@ -3756,9 +4014,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                     {(['all', 'master', 'ouro', 'prata', 'bronze', 'apoio'] as const).map((tierKey) => (
                       <button
                         key={tierKey}
-                        type="button"
                         onClick={() => setSponsorTierFilter(tierKey)}
-                        aria-pressed={sponsorTierFilter === tierKey}
                         className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
                           sponsorTierFilter === tierKey
                             ? 'bg-[#0a1e36] text-white shadow-xs'
@@ -3784,23 +4040,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                 {/* MODAL: ADD / EDIT SPONSOR */}
                 {editingSponsor && (
                   <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-2xs flex items-center justify-center p-4 overflow-y-auto">
-                    <div
-                      ref={sponsorDialogRef}
-                      role="dialog"
-                      aria-modal="true"
-                      aria-labelledby={`${fid}-sponsor-title`}
-                      className="bg-white rounded-3xl max-w-xl w-full p-6 sm:p-8 space-y-5 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 duration-150"
-                    >
+                    <div className="bg-white rounded-3xl max-w-xl w-full p-6 sm:p-8 space-y-5 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
                       <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                         <div className="flex items-center gap-2">
                           <HeartHandshake className="w-5 h-5 text-[#0284c7]" />
-                          <h3 id={`${fid}-sponsor-title`} className="font-extrabold text-base text-slate-900">
+                          <h3 className="font-extrabold text-base text-slate-900">
                             {isCreatingSponsor ? 'Novo Patrocinador / Parceiro' : 'Editar Patrocinador'}
                           </h3>
                         </div>
                         <button
                           type="button"
-                          aria-label="Fechar"
                           onClick={() => {
                             setEditingSponsor(null);
                             setIsCreatingSponsor(false);
@@ -3815,10 +4064,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         {/* Name & Category */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div>
-                            <label htmlFor={`${fid}-f26`} className="block font-bold text-slate-700 uppercase mb-1">
+                            <label className="block font-bold text-slate-700 uppercase mb-1">
                               Nome da Empresa / Parceiro *
                             </label>
-                            <input id={`${fid}-f26`}
+                            <input
                               type="text"
                               required
                               value={editingSponsor.name}
@@ -3831,10 +4080,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           </div>
 
                           <div>
-                            <label htmlFor={`${fid}-f27`} className="block font-bold text-slate-700 uppercase mb-1">
+                            <label className="block font-bold text-slate-700 uppercase mb-1">
                               Segmento / Categoria *
                             </label>
-                            <input id={`${fid}-f27`}
+                            <input
                               type="text"
                               value={editingSponsor.category}
                               onChange={(e) =>
@@ -3849,10 +4098,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         {/* Tier & TierLabel */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div>
-                            <label htmlFor={`${fid}-f28`} className="block font-bold text-slate-700 uppercase mb-1">
+                            <label className="block font-bold text-slate-700 uppercase mb-1">
                               Nível de Patrocínio *
                             </label>
-                            <select id={`${fid}-f28`}
+                            <select
                               value={editingSponsor.tier}
                               onChange={(e) => {
                                 const newTier = e.target.value as SponsorTier;
@@ -3883,10 +4132,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           </div>
 
                           <div>
-                            <label htmlFor={`${fid}-f29`} className="block font-bold text-slate-700 uppercase mb-1">
+                            <label className="block font-bold text-slate-700 uppercase mb-1">
                               Título do Nível (Exibição Pública)
                             </label>
-                            <input id={`${fid}-f29`}
+                            <input
                               type="text"
                               value={editingSponsor.tierLabel}
                               onChange={(e) =>
@@ -3911,12 +4160,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         {/* Website URL & Order */}
                         <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
                           <div className="sm:col-span-8">
-                            <label htmlFor={`${fid}-f30`} className="block font-bold text-slate-700 uppercase mb-1">
+                            <label className="block font-bold text-slate-700 uppercase mb-1">
                               Link do Site ou Rede Social Oficial
                             </label>
-                            <input id={`${fid}-f30`}
+                            <input
                               type="url"
-                              spellCheck={false}
                               value={editingSponsor.websiteUrl || ''}
                               onChange={(e) =>
                                 setEditingSponsor({ ...editingSponsor, websiteUrl: e.target.value })
@@ -3927,10 +4175,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           </div>
 
                           <div className="sm:col-span-4">
-                            <label htmlFor={`${fid}-f31`} className="block font-bold text-slate-700 uppercase mb-1">
+                            <label className="block font-bold text-slate-700 uppercase mb-1">
                               Ordem de Exibição
                             </label>
-                            <input id={`${fid}-f31`}
+                            <input
                               type="number"
                               min={1}
                               max={99}
@@ -3948,16 +4196,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
                         {/* Description */}
                         <div>
-                          <label htmlFor={`${fid}-f32`} className="block font-bold text-slate-700 uppercase mb-1">
+                          <label className="block font-bold text-slate-700 uppercase mb-1">
                             Descrição da Parceria ou Mensagem Institucional
                           </label>
-                          <textarea id={`${fid}-f32`}
+                          <textarea
                             rows={3}
                             value={editingSponsor.description}
                             onChange={(e) =>
                               setEditingSponsor({ ...editingSponsor, description: e.target.value })
                             }
-                            placeholder="Descreva o apoio oferecido, impacto social ou contrapartida institucional…"
+                            placeholder="Descreva o apoio oferecido, impacto social ou contrapartida institucional..."
                             className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg leading-relaxed"
                           />
                         </div>
@@ -3965,14 +4213,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         {/* Active Switch */}
                         <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between">
                           <div>
-                            <label htmlFor={`${fid}-sponsor-active`} className="font-bold text-slate-800 block">Exibir no Site Público</label>
-                            <span id={`${fid}-sponsor-active-hint`} className="text-[11px] text-slate-500">
+                            <span className="font-bold text-slate-800 block">Exibir no Site Público</span>
+                            <span className="text-[11px] text-slate-500">
                               Se desmarcado, o patrocinador fica salvo no painel sem aparecer aos visitantes.
                             </span>
                           </div>
                           <input
-                            id={`${fid}-sponsor-active`}
-                            aria-describedby={`${fid}-sponsor-active-hint`}
                             type="checkbox"
                             checked={editingSponsor.active}
                             onChange={(e) =>
@@ -4081,7 +4327,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                 : 'bg-slate-200 text-slate-600'
                             }`}
                             title="Alternar visibilidade pública"
-                            aria-pressed={spon.active}
                           >
                             {spon.active ? '● Ativo' : '○ Inativo'}
                           </button>
@@ -4119,24 +4364,34 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
                       <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
                         <div className="flex items-center gap-1">
-                          <button aria-label="Subir na ordem de exibição"
+                          <button
                             type="button"
                             disabled={index === 0}
                             onClick={() => {
                               if (index === 0) return;
-                              setDraftSponsors(swapSponsors(draftSponsors, spon.id, filteredSponsors[index - 1].id));
+                              const next = [...draftSponsors];
+                              const temp = next[index - 1];
+                              next[index - 1] = next[index];
+                              next[index] = temp;
+                              next.forEach((s, i) => (s.order = i + 1));
+                              setDraftSponsors(next);
                             }}
                             className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 rounded hover:bg-slate-100 cursor-pointer"
                             title="Subir na ordem de exibição"
                           >
                             <ArrowUp className="w-3.5 h-3.5" />
                           </button>
-                          <button aria-label="Descer na ordem de exibição"
+                          <button
                             type="button"
-                            disabled={index === filteredSponsors.length - 1}
+                            disabled={index === draftSponsors.length - 1}
                             onClick={() => {
-                              if (index === filteredSponsors.length - 1) return;
-                              setDraftSponsors(swapSponsors(draftSponsors, spon.id, filteredSponsors[index + 1].id));
+                              if (index === draftSponsors.length - 1) return;
+                              const next = [...draftSponsors];
+                              const temp = next[index + 1];
+                              next[index + 1] = next[index];
+                              next[index] = temp;
+                              next.forEach((s, i) => (s.order = i + 1));
+                              setDraftSponsors(next);
                             }}
                             className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 rounded hover:bg-slate-100 cursor-pointer"
                             title="Descer na ordem de exibição"
@@ -4147,7 +4402,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
                         <div className="flex items-center gap-1">
                           {spon.websiteUrl && (
-                            <a aria-label="Acessar site oficial"
+                            <a
                               href={spon.websiteUrl}
                               target="_blank"
                               rel="noopener noreferrer"
@@ -4158,7 +4413,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                             </a>
                           )}
 
-                          <button aria-label="Duplicar patrocinador"
+                          <button
                             type="button"
                             onClick={() => {
                               const duplicated: Sponsor = {
@@ -4176,7 +4431,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                             <Copy className="w-3.5 h-3.5" />
                           </button>
 
-                          <button aria-label="Editar patrocinador"
+                          <button
                             type="button"
                             onClick={() => {
                               setEditingSponsor({ ...spon });
@@ -4188,7 +4443,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                             <Edit3 className="w-3.5 h-3.5" />
                           </button>
 
-                          <button aria-label="Excluir patrocinador"
+                          <button
                             type="button"
                             onClick={() => {
                               requestPinProtectedAction(() => {
@@ -4277,18 +4532,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                 <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row gap-3 items-center justify-between">
                   <div className="relative w-full sm:w-80">
                     <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input aria-label="Buscar evento por título ou local"
-                      type="search"
+                    <input
+                      type="text"
                       value={eventSearch}
                       onChange={(e) => setEventSearch(e.target.value)}
-                      placeholder="Buscar evento por título ou local…"
+                      placeholder="Buscar evento por título ou local..."
                       className="w-full text-xs pl-9 pr-8 py-2 bg-slate-50 border border-slate-300 rounded-xl"
                     />
                   </div>
 
                   <div className="flex items-center gap-2 w-full sm:w-auto">
-                    <label htmlFor={`${fid}-f33`} className="text-xs font-bold text-slate-600">Categoria:</label>
-                    <select id={`${fid}-f33`}
+                    <label className="text-xs font-bold text-slate-600">Categoria:</label>
+                    <select
                       value={eventCategoryFilter}
                       onChange={(e) => setEventCategoryFilter(e.target.value)}
                       className="text-xs p-2 bg-slate-50 border border-slate-300 rounded-xl"
@@ -4304,25 +4559,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                 {/* Event Create / Edit Modal */}
                 {(isCreatingEvent || editingEvent) && editingEvent && (
                   <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
-                    <div
-                      ref={eventDialogRef}
-                      role="dialog"
-                      aria-modal="true"
-                      aria-labelledby={`${fid}-event-title`}
-                      className="bg-white rounded-2xl max-w-3xl w-full p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[92vh] overflow-y-auto"
-                    >
+                    <div className="bg-white rounded-2xl max-w-3xl w-full p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[92vh] overflow-y-auto">
                       <div className="flex items-center justify-between border-b pb-3">
                         <div>
                           <span className="text-[10px] font-bold text-[#0284c7] uppercase">
                             Gestão da Agenda Esportiva
                           </span>
-                          <h3 id={`${fid}-event-title`} className="font-black text-base text-[#0a1e36] uppercase">
+                          <h3 className="font-black text-base text-[#0a1e36] uppercase">
                             {isCreatingEvent ? 'Cadastrar Novo Evento' : 'Editar Evento / Atividade'}
                           </h3>
                         </div>
                         <button
-                          type="button"
-                          aria-label="Fechar"
                           onClick={() => {
                             setIsCreatingEvent(false);
                             setEditingEvent(null);
@@ -4336,10 +4583,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                       <div className="space-y-4 text-xs">
                         <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
                           <div className="sm:col-span-8">
-                            <label htmlFor={`${fid}-f34`} className="block font-bold text-slate-700 uppercase mb-1">
+                            <label className="block font-bold text-slate-700 uppercase mb-1">
                               Título do Evento / Atividade *
                             </label>
-                            <input id={`${fid}-f34`}
+                            <input
                               type="text"
                               value={editingEvent.title}
                               onChange={(e) =>
@@ -4350,10 +4597,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           </div>
 
                           <div className="sm:col-span-4">
-                            <label htmlFor={`${fid}-f35`} className="block font-bold text-slate-700 uppercase mb-1">
+                            <label className="block font-bold text-slate-700 uppercase mb-1">
                               Status das Inscrições
                             </label>
-                            <select id={`${fid}-f35`}
+                            <select
                               value={editingEvent.status}
                               onChange={(e) =>
                                 setEditingEvent({
@@ -4373,10 +4620,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                           <div>
-                            <label htmlFor={`${fid}-f36`} className="block font-bold text-slate-700 uppercase mb-1">
+                            <label className="block font-bold text-slate-700 uppercase mb-1">
                               Categoria *
                             </label>
-                            <select id={`${fid}-f36`}
+                            <select
                               value={editingEvent.category}
                               onChange={(e) => {
                                 const val = e.target.value as EventCategory;
@@ -4401,10 +4648,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           </div>
 
                           <div>
-                            <label htmlFor={`${fid}-f37`} className="block font-bold text-slate-700 uppercase mb-1">
+                            <label className="block font-bold text-slate-700 uppercase mb-1">
                               Data do Evento *
                             </label>
-                            <input id={`${fid}-f37`}
+                            <input
                               type="date"
                               value={editingEvent.date}
                               onChange={(e) => {
@@ -4423,10 +4670,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           </div>
 
                           <div>
-                            <label htmlFor={`${fid}-f38`} className="block font-bold text-slate-700 uppercase mb-1">
+                            <label className="block font-bold text-slate-700 uppercase mb-1">
                               Horário *
                             </label>
-                            <input id={`${fid}-f38`}
+                            <input
                               type="text"
                               value={editingEvent.time}
                               onChange={(e) =>
@@ -4440,10 +4687,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div>
-                            <label htmlFor={`${fid}-f39`} className="block font-bold text-slate-700 uppercase mb-1">
+                            <label className="block font-bold text-slate-700 uppercase mb-1">
                               Local / Polo Esportivo *
                             </label>
-                            <input id={`${fid}-f39`}
+                            <input
                               type="text"
                               value={editingEvent.location}
                               onChange={(e) =>
@@ -4454,10 +4701,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           </div>
 
                           <div>
-                            <label htmlFor={`${fid}-f40`} className="block font-bold text-slate-700 uppercase mb-1">
+                            <label className="block font-bold text-slate-700 uppercase mb-1">
                               Endereço Completo
                             </label>
-                            <input id={`${fid}-f40`}
+                            <input
                               type="text"
                               value={editingEvent.address}
                               onChange={(e) =>
@@ -4470,10 +4717,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
                         <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                           <div className="sm:col-span-2">
-                            <label htmlFor={`${fid}-f41`} className="block font-bold text-slate-700 uppercase mb-1">
+                            <label className="block font-bold text-slate-700 uppercase mb-1">
                               Público-Alvo
                             </label>
-                            <input id={`${fid}-f41`}
+                            <input
                               type="text"
                               value={editingEvent.targetAudience}
                               onChange={(e) =>
@@ -4487,41 +4734,33 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           </div>
 
                           <div>
-                            <label htmlFor={`${fid}-f42`} className="block font-bold text-slate-700 uppercase mb-1">
+                            <label className="block font-bold text-slate-700 uppercase mb-1">
                               Capacidade Total
                             </label>
-                            <input id={`${fid}-f42`}
+                            <input
                               type="number"
                               value={editingEvent.capacity}
-                              onChange={(e) => {
-                                // Mantém as vagas já reservadas: ajusta as disponíveis junto com a capacidade
-                                const capacity = Math.max(1, Number(e.target.value));
-                                const booked = Math.max(0, editingEvent.capacity - editingEvent.availableSpots);
+                              onChange={(e) =>
                                 setEditingEvent({
                                   ...editingEvent,
-                                  capacity,
-                                  availableSpots: Math.max(0, capacity - booked),
-                                });
-                              }}
+                                  capacity: Math.max(1, Number(e.target.value)),
+                                })
+                              }
                               className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg"
                             />
                           </div>
 
                           <div>
-                            <label htmlFor={`${fid}-f43`} className="block font-bold text-slate-700 uppercase mb-1">
+                            <label className="block font-bold text-slate-700 uppercase mb-1">
                               Vagas Disponíveis
                             </label>
-                            <input id={`${fid}-f43`}
+                            <input
                               type="number"
                               value={editingEvent.availableSpots}
-                              max={editingEvent.capacity}
                               onChange={(e) =>
                                 setEditingEvent({
                                   ...editingEvent,
-                                  availableSpots: Math.min(
-                                    editingEvent.capacity,
-                                    Math.max(0, Number(e.target.value))
-                                  ),
+                                  availableSpots: Math.max(0, Number(e.target.value)),
                                 })
                               }
                               className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg"
@@ -4531,10 +4770,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div>
-                            <label htmlFor={`${fid}-f44`} className="block font-bold text-slate-700 uppercase mb-1">
+                            <label className="block font-bold text-slate-700 uppercase mb-1">
                               Coordenação / Responsável Técnico
                             </label>
-                            <input id={`${fid}-f44`}
+                            <input
                               type="text"
                               value={editingEvent.coordinator}
                               onChange={(e) =>
@@ -4545,10 +4784,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           </div>
 
                           <div>
-                            <label htmlFor={`${fid}-f45`} className="block font-bold text-slate-700 uppercase mb-1">
+                            <label className="block font-bold text-slate-700 uppercase mb-1">
                               Data Formatada Exibida
                             </label>
-                            <input id={`${fid}-f45`}
+                            <input
                               type="text"
                               value={editingEvent.formattedDate}
                               onChange={(e) =>
@@ -4563,10 +4802,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         </div>
 
                         <div>
-                          <label htmlFor={`${fid}-f46`} className="block font-bold text-slate-700 uppercase mb-1">
+                          <label className="block font-bold text-slate-700 uppercase mb-1">
                             Descrição Completa da Atividade *
                           </label>
-                          <textarea id={`${fid}-f46`}
+                          <textarea
                             rows={3}
                             value={editingEvent.description}
                             onChange={(e) =>
@@ -4579,12 +4818,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         {/* Schedule Highlights & Prerequisites Dynamic Lists */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-200">
                           <div className="space-y-2">
-                            <label htmlFor={`${fid}-event-highlight`} className="block font-bold text-slate-700 uppercase">
+                            <label className="block font-bold text-slate-700 uppercase">
                               Destaques da Programação
                             </label>
                             <div className="flex gap-1.5">
                               <input
-                                id={`${fid}-event-highlight`}
                                 type="text"
                                 value={newHighlightText}
                                 onChange={(e) => setNewHighlightText(e.target.value)}
@@ -4602,7 +4840,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                     setNewHighlightText('');
                                   }
                                 }}
-                                placeholder="Ex: Aula prática de fundamentos…"
+                                placeholder="Ex: Aula prática de fundamentos..."
                                 className="flex-1 p-2 bg-slate-50 border border-slate-300 rounded-lg"
                               />
                               <button
@@ -4618,7 +4856,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                   });
                                   setNewHighlightText('');
                                 }}
-                                aria-label="Adicionar destaque da programação"
                                 className="px-3 py-2 bg-[#0a1e36] text-white font-bold rounded-lg cursor-pointer"
                               >
                                 +
@@ -4641,7 +4878,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                         ).filter((_, i) => i !== idx),
                                       })
                                     }
-                                    aria-label={`Remover destaque: ${item}`}
                                     className="text-rose-500 hover:text-rose-700 cursor-pointer"
                                   >
                                     ✕
@@ -4652,12 +4888,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           </div>
 
                           <div className="space-y-2">
-                            <label htmlFor={`${fid}-event-prereq`} className="block font-bold text-slate-700 uppercase">
+                            <label className="block font-bold text-slate-700 uppercase">
                               Pré-requisitos / Orientações
                             </label>
                             <div className="flex gap-1.5">
                               <input
-                                id={`${fid}-event-prereq`}
                                 type="text"
                                 value={newPrereqText}
                                 onChange={(e) => setNewPrereqText(e.target.value)}
@@ -4675,7 +4910,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                     setNewPrereqText('');
                                   }
                                 }}
-                                placeholder="Ex: Traje esportivo e documento…"
+                                placeholder="Ex: Traje esportivo e documento..."
                                 className="flex-1 p-2 bg-slate-50 border border-slate-300 rounded-lg"
                               />
                               <button
@@ -4691,7 +4926,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                   });
                                   setNewPrereqText('');
                                 }}
-                                aria-label="Adicionar pré-requisito"
                                 className="px-3 py-2 bg-[#0a1e36] text-white font-bold rounded-lg cursor-pointer"
                               >
                                 +
@@ -4714,7 +4948,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                         ),
                                       })
                                     }
-                                    aria-label={`Remover pré-requisito: ${item}`}
                                     className="text-rose-500 hover:text-rose-700 cursor-pointer"
                                   >
                                     ✕
@@ -4819,15 +5052,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                               <Edit3 className="w-3.5 h-3.5" />
                               <span>Editar</span>
                             </button>
-                            <button aria-label="Duplicar evento (salva ao confirmar no modal)"
+                            <button
                               onClick={() => {
                                 setIsCreatingEvent(true);
                                 setEditingEvent({
                                   ...ev,
                                   id: '',
                                   title: `${ev.title} (Cópia)`,
-                                  availableSpots: ev.capacity,
-                                  status: 'inscricoes_abertas',
                                   attachments: [...(ev.attachments || [])],
                                   scheduleHighlights: [...(ev.scheduleHighlights || [])],
                                   prerequisites: [...(ev.prerequisites || [])],
@@ -4838,7 +5069,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                             >
                               <Copy className="w-3.5 h-3.5" />
                             </button>
-                            <button aria-label="Excluir"
+                            <button
                               onClick={() => {
                                 requestPinProtectedAction(() => {
                                   setDraftEvents((prev) => prev.filter((item) => item.id !== ev.id));
@@ -4864,169 +5095,285 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
           })()}
 
           {/* ========================================================================= */}
-          {/* TAB 5: PROJETOS ESPORTIVOS (FULL CRUD + IMAGE UPLOAD + ATTACHMENTS) */}
+          {/* TAB 5: PROJETOS ESPORTIVOS & ABA SEPARADA DE PARTICIPANTES (NEXT FIT CSV) */}
           {/* ========================================================================= */}
           {activeTab === 'projetos' && (
             <div className="space-y-6">
-              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div>
-                  <h2 className="text-xl font-black text-[#0a1e36] uppercase">
-                    Projetos Esportivos & Programas Sociais
-                  </h2>
-                  <p className="text-xs text-slate-600 mt-0.5">
-                    Crie novos projetos, envie fotos de capa e anexe fichas de matrícula ou regulamentos ({draftProjects.length} projetos).
-                  </p>
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <h2 className="text-xl font-black text-[#0a1e36] uppercase">
+                      Projetos Esportivos & Gestão de Participantes
+                    </h2>
+                    <p className="text-xs text-slate-600 mt-0.5">
+                      Gerencie os projetos sociais/base ou acesse a aba exclusiva de <strong>Participantes</strong> para importar a relação do Next Fit via planilha <code className="bg-slate-100 px-1 py-0.5 rounded font-mono">.csv</code>.
+                    </p>
+                  </div>
+
+                  {projectsSubTab === 'projetos' && (
+                    <button
+                      onClick={() => {
+                        setIsCreatingProject(true);
+                        setEditingProject({
+                          id: '',
+                          name: '',
+                          category: 'esporte_educacional',
+                          targetAudience: 'Crianças e adolescentes de 6 a 17 anos',
+                          description: '',
+                          schedule: 'Terças e quintas: 08h às 10h',
+                          location: 'Polo Rio Marinho · Cariacica/ES',
+                          coordinator: 'Coordenação Técnica Vitalizar',
+                          fundingSource: 'Recursos Próprios e Parcerias MROSC',
+                          imageUrl:
+                            'https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=800&q=80',
+                          attachments: [],
+                        });
+                      }}
+                      className="px-4 py-2.5 bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-bold uppercase rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer self-start sm:self-auto whitespace-nowrap shrink-0"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>+ Novo Projeto Esportivo</span>
+                    </button>
+                  )}
                 </div>
 
-                <button
-                  onClick={() => {
-                    setIsCreatingProject(true);
-                    setEditingProject({
-                      id: '',
-                      name: '',
-                      category: 'esporte_educacional',
-                      targetAudience: 'Crianças e adolescentes de 6 a 17 anos',
-                      description: '',
-                      schedule: 'Terças e quintas: 08h às 10h',
-                      location: 'Polo Rio Marinho · Cariacica/ES',
-                      coordinator: 'Coordenação Técnica Vitalizar',
-                      fundingSource: 'Recursos Próprios e Parcerias MROSC',
-                      imageUrl:
-                        'https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=800&q=80',
-                      attachments: [],
+                {/* Sub-tabs inside Projetos: 1. Projetos & Estrutura | 2. Participantes (Next Fit / CSV) */}
+                <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setProjectsSubTab('projetos')}
+                    className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-2 whitespace-nowrap shrink-0 ${
+                      projectsSubTab === 'projetos'
+                        ? 'bg-[#0a1e36] text-white shadow-xs'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900'
+                    }`}
+                  >
+                    <FolderKanban className="w-4 h-4" />
+                    <span>Projetos Cadastrados ({draftProjects.length})</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setProjectsSubTab('participantes')}
+                    className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-2 whitespace-nowrap shrink-0 ${
+                      projectsSubTab === 'participantes'
+                        ? 'bg-emerald-700 text-white shadow-xs'
+                        : 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100'
+                    }`}
+                  >
+                    <Users className="w-4 h-4" />
+                    <span>
+                      Participantes & Atletas Next Fit (
+                      {draftProjects.reduce(
+                        (acc, p) => acc + (p.participants?.length || 0),
+                        0
+                      )}
+                      )
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setProjectsSubTab('chamada')}
+                    className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-2 whitespace-nowrap shrink-0 ${
+                      projectsSubTab === 'chamada'
+                        ? 'bg-[#0284c7] text-white shadow-xs'
+                        : 'bg-sky-50 text-[#0284c7] border border-sky-200 hover:bg-sky-100'
+                    }`}
+                  >
+                    <ClipboardList className="w-4 h-4" />
+                    <span>
+                      Chamada Digital & Assiduidade MROSC (
+                      {(draftSiteSettings.attendanceSessions || []).length})
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              {projectsSubTab === 'chamada' ? (
+                <AttendanceManager
+                  projects={draftProjects}
+                  attendanceSessions={draftSiteSettings.attendanceSessions || []}
+                  onSaveSessionAndSyncProjects={(
+                    updatedSessions,
+                    updatedProjects,
+                    toastMsg
+                  ) => {
+                    const nextSettings = {
+                      ...draftSiteSettings,
+                      attendanceSessions: updatedSessions,
+                    };
+                    setDraftSiteSettings(nextSettings);
+                    setDraftProjects(updatedProjects);
+                    saveAdminChanges({
+                      siteSettings: nextSettings,
+                      projects: updatedProjects,
+                      toastMessage: toastMsg,
+                      logDetails: toastMsg,
                     });
                   }}
-                  className="px-4 py-2.5 bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-bold uppercase rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer self-start sm:self-auto"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>+ Novo Projeto Esportivo</span>
-                </button>
-              </div>
+                  onNotify={showToast}
+                />
+              ) : projectsSubTab === 'participantes' ? (
+                <NextFitParticipantsManager
+                  mode="projects_subtab"
+                  projects={draftProjects}
+                  selectedProjectFilter={projectsParticipantFilter}
+                  onSelectProjectFilterChange={setProjectsParticipantFilter}
+                  onUpdateProjects={(updatedProjects, toastMsg, persistImmediately) => {
+                    setDraftProjects(updatedProjects);
+                    if (persistImmediately) {
+                      saveAdminChanges({
+                        projects: updatedProjects,
+                        toastMessage: toastMsg,
+                        logDetails:
+                          toastMsg ||
+                          'Relação de participantes dos projetos atualizada via planilha Next Fit (.CSV).',
+                      });
+                    } else if (toastMsg) {
+                      showToast(toastMsg, 'info');
+                    }
+                  }}
+                  onNotify={showToast}
+                />
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {draftProjects.map((proj) => (
+                    <div
+                      key={proj.id}
+                      className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between space-y-4"
+                    >
+                      <div className="space-y-3">
+                        <div className="flex gap-3.5">
+                          <img
+                            src={proj.imageUrl}
+                            alt={proj.name}
+                            referrerPolicy="no-referrer"
+                            className="w-24 h-20 rounded-xl object-cover bg-slate-100 shrink-0 border border-slate-200"
+                          />
+                          <div>
+                            <span className="text-[10px] font-black text-[#0284c7] bg-sky-50 px-2.5 py-0.5 rounded-full border border-sky-200 uppercase">
+                              {(proj.category || 'geral').replace(/_/g, ' ')}
+                            </span>
+                            <h3 className="font-black text-sm text-[#0a1e36] mt-1.5">{proj.name}</h3>
+                            <p className="text-xs text-slate-600 mt-1 line-clamp-2">
+                              {proj.description}
+                            </p>
+                          </div>
+                        </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {draftProjects.map((proj) => (
-                  <div
-                    key={proj.id}
-                    className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between space-y-4"
-                  >
-                    <div className="space-y-3">
-                      <div className="flex gap-3.5">
-                        <img
-                          src={proj.imageUrl}
-                          alt={proj.name}
-                          referrerPolicy="no-referrer"
-                          className="w-24 h-20 rounded-xl object-cover bg-slate-100 shrink-0 border border-slate-200"
-                        />
-                        <div>
-                          <span className="text-[10px] font-black text-[#0284c7] bg-sky-50 px-2.5 py-0.5 rounded-full border border-sky-200 uppercase">
-                            {proj.category.replace(/_/g, ' ')}
-                          </span>
-                          <h3 className="font-black text-sm text-[#0a1e36] mt-1.5">{proj.name}</h3>
-                          <p className="text-xs text-slate-600 mt-1 line-clamp-2">
-                            {proj.description}
-                          </p>
+                        <div className="text-xs text-slate-500 space-y-1 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                          <div>
+                            <strong>Público:</strong> {proj.targetAudience}
+                          </div>
+                          <div>
+                            <strong>Horários:</strong> {proj.schedule}
+                          </div>
+                          <div>
+                            <strong>Local:</strong> {proj.location}
+                          </div>
+                          <div>
+                            <strong>Coordenação:</strong> {proj.coordinator}
+                          </div>
                         </div>
                       </div>
 
-                      <div className="text-xs text-slate-500 space-y-1 bg-slate-50 p-3 rounded-xl border border-slate-200">
-                        <div>
-                          <strong>Público:</strong> {proj.targetAudience}
+                      <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setProjectsParticipantFilter(proj.id);
+                              setProjectsSubTab('participantes');
+                            }}
+                            className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-lg text-[11px] font-bold cursor-pointer inline-flex items-center gap-1 transition-colors"
+                            title="Abrir aba de Participantes filtrada para este projeto"
+                          >
+                            <Users className="w-3 h-3" />
+                            <span>{(proj.participants || []).length} participante(s) →</span>
+                          </button>
+                          <span className="px-2 py-0.5 bg-amber-50 text-amber-800 border border-amber-200 rounded-md text-[11px] font-bold">
+                            {(proj.staff || []).length} comissão
+                          </span>
+                          {proj.attachments && proj.attachments.length > 0 && (
+                            <span className="px-2 py-0.5 bg-sky-50 text-[#0284c7] rounded-md text-[11px] font-bold inline-flex items-center gap-1">
+                              <Paperclip className="w-3 h-3" />
+                              {proj.attachments.length} anexo(s)
+                            </span>
+                          )}
                         </div>
-                        <div>
-                          <strong>Horários:</strong> {proj.schedule}
-                        </div>
-                        <div>
-                          <strong>Local:</strong> {proj.location}
-                        </div>
-                        <div>
-                          <strong>Coordenação:</strong> {proj.coordinator}
+
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => {
+                              setIsCreatingProject(false);
+                              setEditingProject({
+                                ...proj,
+                                attachments: proj.attachments || [],
+                                staff: proj.staff || [],
+                                participants: proj.participants || [],
+                              });
+                            }}
+                            className="px-3 py-1.5 bg-[#0a1e36] hover:bg-[#0284c7] text-white text-xs font-bold rounded-lg cursor-pointer flex items-center gap-1.5 transition-colors"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                            <span>Editar Projeto</span>
+                          </button>
+                          <button
+                            onClick={() => {
+                              setIsCreatingProject(true);
+                              setEditingProject({
+                                ...proj,
+                                id: '',
+                                name: `${proj.name} (Cópia)`,
+                                attachments: [...(proj.attachments || [])],
+                                staff: [...(proj.staff || [])],
+                                participants: [...(proj.participants || [])],
+                              });
+                            }}
+                            className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg cursor-pointer"
+                            title="Duplicar projeto (salva ao confirmar no modal)"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              requestPinProtectedAction(() => {
+                                setDraftProjects((prev) => prev.filter((p) => p.id !== proj.id));
+                                showToast(
+                                  'Remoção marcada no rascunho. Clique em "Salvar Alterações" para confirmar.',
+                                  'info'
+                                );
+                              });
+                            }}
+                            className="p-1.5 bg-slate-100 hover:bg-rose-100 text-rose-600 rounded-lg cursor-pointer"
+                            title="Excluir projeto"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
                       </div>
                     </div>
-
-                    <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
-                      <div>
-                        {proj.attachments && proj.attachments.length > 0 ? (
-                          <span className="px-2.5 py-1 bg-sky-50 text-[#0284c7] rounded-md text-[11px] font-bold inline-flex items-center gap-1">
-                            <Paperclip className="w-3 h-3" />
-                            {proj.attachments.length} arquivo(s) anexo(s)
-                          </span>
-                        ) : (
-                          <span className="text-[11px] text-slate-400">Sem anexos</span>
-                        )}
-                      </div>
-
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          onClick={() => {
-                            setIsCreatingProject(false);
-                            setEditingProject({ ...proj, attachments: proj.attachments || [] });
-                          }}
-                          className="px-3 py-1.5 bg-[#0a1e36] hover:bg-[#0284c7] text-white text-xs font-bold rounded-lg cursor-pointer flex items-center gap-1.5 transition-colors"
-                        >
-                          <Edit3 className="w-3.5 h-3.5" />
-                          <span>Editar</span>
-                        </button>
-                        <button aria-label="Duplicar projeto (salva ao confirmar no modal)"
-                          onClick={() => {
-                            setIsCreatingProject(true);
-                            setEditingProject({
-                              ...proj,
-                              id: '',
-                              name: `${proj.name} (Cópia)`,
-                              attachments: [...(proj.attachments || [])],
-                            });
-                          }}
-                          className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg cursor-pointer"
-                          title="Duplicar projeto (salva ao confirmar no modal)"
-                        >
-                          <Copy className="w-3.5 h-3.5" />
-                        </button>
-                        <button aria-label="Excluir projeto"
-                          onClick={() => {
-                            requestPinProtectedAction(() => {
-                              setDraftProjects((prev) => prev.filter((p) => p.id !== proj.id));
-                              showToast(
-                                'Remoção marcada no rascunho. Clique em "Salvar Alterações" para confirmar.',
-                                'info'
-                              );
-                            });
-                          }}
-                          className="p-1.5 bg-slate-100 hover:bg-rose-100 text-rose-600 rounded-lg cursor-pointer"
-                          title="Excluir projeto"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
 
               {/* Project Create / Edit Modal */}
               {(isCreatingProject || editingProject) && editingProject && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
-                  <div
-                    ref={projectDialogRef}
-                    role="dialog"
-                    aria-modal="true"
-                    aria-labelledby={`${fid}-project-title`}
-                    className="bg-white rounded-2xl max-w-3xl w-full p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[92vh] overflow-y-auto"
-                  >
+                  <div className="bg-white rounded-2xl max-w-4xl w-full p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[92vh] overflow-y-auto">
                     <div className="flex items-center justify-between border-b pb-3">
                       <div>
                         <span className="text-[10px] font-bold text-[#0284c7] uppercase">
-                          Gestão de Projetos & Modalidades
+                          Gestão de Projetos, Comissão Técnica & Vitrine de Atletas
                         </span>
-                        <h3 id={`${fid}-project-title`} className="font-black text-base text-[#0a1e36] uppercase">
+                        <h3 className="font-black text-base text-[#0a1e36] uppercase">
                           {isCreatingProject
                             ? 'Cadastrar Novo Projeto Esportivo'
                             : `Editar Projeto: ${editingProject.name}`}
                         </h3>
                       </div>
                       <button
-                        type="button"
-                        aria-label="Fechar"
                         onClick={() => {
                           setIsCreatingProject(false);
                           setEditingProject(null);
@@ -5040,10 +5387,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                     <div className="space-y-4 text-xs">
                       <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
                         <div className="sm:col-span-8">
-                          <label htmlFor={`${fid}-f47`} className="block font-bold text-slate-700 uppercase mb-1">
+                          <label className="block font-bold text-slate-700 uppercase mb-1">
                             Nome do Projeto *
                           </label>
-                          <input id={`${fid}-f47`}
+                          <input
                             type="text"
                             value={editingProject.name}
                             onChange={(e) =>
@@ -5054,10 +5401,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         </div>
 
                         <div className="sm:col-span-4">
-                          <label htmlFor={`${fid}-f48`} className="block font-bold text-slate-700 uppercase mb-1">
+                          <label className="block font-bold text-slate-700 uppercase mb-1">
                             Eixo / Categoria *
                           </label>
-                          <select id={`${fid}-f48`}
+                          <select
                             value={editingProject.category}
                             onChange={(e) =>
                               setEditingProject({
@@ -5078,10 +5425,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
-                          <label htmlFor={`${fid}-f49`} className="block font-bold text-slate-700 uppercase mb-1">
+                          <label className="block font-bold text-slate-700 uppercase mb-1">
                             Público-Alvo / Faixa Etária
                           </label>
-                          <input id={`${fid}-f49`}
+                          <input
                             type="text"
                             value={editingProject.targetAudience}
                             onChange={(e) =>
@@ -5095,10 +5442,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         </div>
 
                         <div>
-                          <label htmlFor={`${fid}-f50`} className="block font-bold text-slate-700 uppercase mb-1">
+                          <label className="block font-bold text-slate-700 uppercase mb-1">
                             Dias e Horários das Turmas
                           </label>
-                          <input id={`${fid}-f50`}
+                          <input
                             type="text"
                             value={editingProject.schedule}
                             onChange={(e) =>
@@ -5111,10 +5458,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <div>
-                          <label htmlFor={`${fid}-f51`} className="block font-bold text-slate-700 uppercase mb-1">
+                          <label className="block font-bold text-slate-700 uppercase mb-1">
                             Local / Polo de Atendimento
                           </label>
-                          <input id={`${fid}-f51`}
+                          <input
                             type="text"
                             value={editingProject.location}
                             onChange={(e) =>
@@ -5125,10 +5472,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         </div>
 
                         <div>
-                          <label htmlFor={`${fid}-f52`} className="block font-bold text-slate-700 uppercase mb-1">
+                          <label className="block font-bold text-slate-700 uppercase mb-1">
                             Coordenação Técnica
                           </label>
-                          <input id={`${fid}-f52`}
+                          <input
                             type="text"
                             value={editingProject.coordinator}
                             onChange={(e) =>
@@ -5142,10 +5489,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         </div>
 
                         <div>
-                          <label htmlFor={`${fid}-f53`} className="block font-bold text-slate-700 uppercase mb-1">
+                          <label className="block font-bold text-slate-700 uppercase mb-1">
                             Fonte de Recursos / Fomento
                           </label>
-                          <input id={`${fid}-f53`}
+                          <input
                             type="text"
                             value={editingProject.fundingSource}
                             onChange={(e) =>
@@ -5160,10 +5507,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                       </div>
 
                       <div>
-                        <label htmlFor={`${fid}-f54`} className="block font-bold text-slate-700 uppercase mb-1">
+                        <label className="block font-bold text-slate-700 uppercase mb-1">
                           Descrição Pedagógica e Metodológica
                         </label>
-                        <textarea id={`${fid}-f54`}
+                        <textarea
                           rows={3}
                           value={editingProject.description}
                           onChange={(e) =>
@@ -5182,6 +5529,336 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         }
                         onError={(msg) => showToast(msg, 'error')}
                       />
+
+                      {/* 1. Comissão Técnica (Staff) Manager */}
+                      <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="font-black text-xs uppercase text-[#0a1e36]">
+                            Comissão Técnica & Professores ({(editingProject.staff || []).length})
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
+                          <input
+                            type="text"
+                            value={newStaffName}
+                            onChange={(e) => setNewStaffName(e.target.value)}
+                            placeholder="Nome do profissional..."
+                            className="sm:col-span-3 p-2 bg-white border border-slate-300 rounded-lg"
+                          />
+                          <input
+                            type="text"
+                            value={newStaffRole}
+                            onChange={(e) => setNewStaffRole(e.target.value)}
+                            placeholder="Cargo (ex: Treinador)"
+                            className="sm:col-span-3 p-2 bg-white border border-slate-300 rounded-lg"
+                          />
+                          <input
+                            type="text"
+                            value={newStaffLicense}
+                            onChange={(e) => setNewStaffLicense(e.target.value)}
+                            placeholder="Registro (ex: CREF 01234-G/ES)"
+                            className="sm:col-span-3 p-2 bg-white border border-slate-300 rounded-lg"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!newStaffName.trim() || !newStaffRole.trim()) return;
+                              const nextStaff = [
+                                ...(editingProject.staff || []),
+                                {
+                                  id: `staff-${Date.now()}`,
+                                  name: newStaffName.trim(),
+                                  role: newStaffRole.trim(),
+                                  cref: newStaffLicense.trim() || 'Equipe Vitalizar',
+                                  bio:
+                                    newStaffBio.trim() ||
+                                    'Profissional integrante da comissão técnica da Associação Esportiva Vitalizar.',
+                                  photoUrl:
+                                    'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&q=80',
+                                  specialties: ['Formação Esportiva', 'Pedagogia do Esporte'],
+                                },
+                              ];
+                              setEditingProject({ ...editingProject, staff: nextStaff });
+                              setNewStaffName('');
+                              setNewStaffRole('');
+                              setNewStaffLicense('');
+                              setNewStaffBio('');
+                            }}
+                            className="sm:col-span-3 px-3 py-2 bg-[#0284c7] hover:bg-[#0369a1] text-white font-bold rounded-lg cursor-pointer"
+                          >
+                            + Adicionar Membro
+                          </button>
+                        </div>
+
+                        {(editingProject.staff || []).length > 0 && (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                            {(editingProject.staff || []).map((member, idx) => (
+                              <div
+                                key={member.id || idx}
+                                className="p-2.5 bg-white border border-slate-200 rounded-xl flex items-center justify-between gap-2"
+                              >
+                                <div className="min-w-0">
+                                  <span className="font-bold text-slate-900 block truncate">
+                                    {member.name}
+                                  </span>
+                                  <span className="text-[11px] text-slate-500 block truncate">
+                                    {member.role} {member.cref ? `• ${member.cref}` : ''}
+                                  </span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setEditingProject({
+                                      ...editingProject,
+                                      staff: (editingProject.staff || []).filter((_, i) => i !== idx),
+                                    })
+                                  }
+                                  className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
+                                  title="Remover membro"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 2. Vitrine de Atletas / Participantes (Participants) Manager */}
+                      <div className="p-4 bg-emerald-50/50 rounded-2xl border border-emerald-200 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <span className="font-black text-xs uppercase text-emerald-950 block">
+                              Elenco & Vitrine de Atletas / Participantes ({(editingProject.participants || []).length})
+                            </span>
+                            <span className="text-[11px] text-slate-500">
+                              Atletas cadastrados aqui aparecem na Vitrine Oficial do projeto e podem receber sondagens de olheiros.
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
+                          <input
+                            type="text"
+                            value={newParticipantName}
+                            onChange={(e) => setNewParticipantName(e.target.value)}
+                            placeholder="Nome do atleta / educando..."
+                            className="sm:col-span-4 p-2 bg-white border border-slate-300 rounded-lg"
+                          />
+                          <input
+                            type="number"
+                            value={newParticipantAge}
+                            onChange={(e) => setNewParticipantAge(e.target.value)}
+                            placeholder="Idade"
+                            className="sm:col-span-2 p-2 bg-white border border-slate-300 rounded-lg"
+                          />
+                          <input
+                            type="text"
+                            value={newParticipantRole}
+                            onChange={(e) => setNewParticipantRole(e.target.value)}
+                            placeholder="Posição / Categoria (ex: Atacante)"
+                            className="sm:col-span-3 p-2 bg-white border border-slate-300 rounded-lg"
+                          />
+                          <input
+                            type="text"
+                            value={newParticipantSchool}
+                            onChange={(e) => setNewParticipantSchool(e.target.value)}
+                            placeholder="Escola / Ano (ex: EMEF • 9º Ano)"
+                            className="sm:col-span-3 p-2 bg-white border border-slate-300 rounded-lg"
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
+                          <input
+                            type="text"
+                            value={newParticipantHighlight}
+                            onChange={(e) => setNewParticipantHighlight(e.target.value)}
+                            placeholder="Destaque esportivo/escolar (ex: Artilheiro Sub-15)"
+                            className="sm:col-span-5 p-2 bg-white border border-slate-300 rounded-lg"
+                          />
+                          <input
+                            type="text"
+                            value={newParticipantBio}
+                            onChange={(e) => setNewParticipantBio(e.target.value)}
+                            placeholder="Resumo técnico / parecer para olheiros..."
+                            className="sm:col-span-4 p-2 bg-white border border-slate-300 rounded-lg"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!newParticipantName.trim()) return;
+                              const ageNum = Number(newParticipantAge) || 14;
+                              const nextParticipants = [
+                                ...(editingProject.participants || []),
+                                {
+                                  id: `ath-${Date.now()}`,
+                                  name: newParticipantName.trim(),
+                                  photoUrl:
+                                    'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&q=80',
+                                  jerseyNumber: ((editingProject.participants?.length || 0) % 11) + 7,
+                                  position: newParticipantRole.trim() || 'Meio-Campista / Ala',
+                                  positionGroup: 'meio' as const,
+                                  preferredFoot: 'Destro' as const,
+                                  age: ageNum,
+                                  birthDate: `${2026 - ageNum}`,
+                                  category: ageNum <= 13 ? 'Sub-13' : ageNum <= 15 ? 'Sub-15' : 'Sub-17',
+                                  height: '1,68m',
+                                  weight: '58kg',
+                                  cardTier: 'destaque' as const,
+                                  stats: {
+                                    pace: 82,
+                                    shooting: 79,
+                                    passing: 84,
+                                    dribbling: 85,
+                                    defending: 72,
+                                    physical: 78,
+                                    overall: 82,
+                                  },
+                                  schoolInfo: {
+                                    schoolName: newParticipantSchool.trim() || 'Rede Pública Municipal de Cariacica',
+                                    grade: 'Ensino Fundamental',
+                                    turn: 'Matutino' as const,
+                                    attendanceRate: '98%',
+                                  },
+                                  highlights: [
+                                    newParticipantHighlight.trim() || 'Destaque Assiduidade & Fair Play 2026',
+                                  ],
+                                  scoutReport: {
+                                    summary:
+                                      newParticipantBio.trim() ||
+                                      'Atleta em formação com excelente leitura tática, disciplina escolar e comprometimento nos treinos.',
+                                    strengths: ['Visão de jogo', 'Velocidade de transição', 'Disciplina tática'],
+                                    developmentAreas: ['Finalização de média distância'],
+                                    scoutRating: '4.8 / 5.0',
+                                  },
+                                  photos: [],
+                                  videos: [],
+                                },
+                              ];
+                              setEditingProject({
+                                ...editingProject,
+                                participants: nextParticipants,
+                              });
+                              setNewParticipantName('');
+                              setNewParticipantRole('');
+                              setNewParticipantSchool('');
+                              setNewParticipantHighlight('');
+                              setNewParticipantBio('');
+                            }}
+                            className="sm:col-span-3 px-3 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-lg cursor-pointer"
+                          >
+                            + Cadastrar Atleta
+                          </button>
+                        </div>
+
+                        {(editingProject.participants || []).length > 0 && (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 max-h-52 overflow-y-auto">
+                            {(editingProject.participants || []).map((ath, idx) => (
+                              <div
+                                key={ath.id || idx}
+                                className="p-2.5 bg-white border border-emerald-200 rounded-xl flex items-center justify-between gap-2"
+                              >
+                                <div className="min-w-0">
+                                  <span className="font-bold text-slate-900 block truncate">
+                                    {ath.name} ({ath.age} anos)
+                                  </span>
+                                  <span className="text-[11px] text-emerald-700 font-semibold block truncate">
+                                    {ath.position} • {(ath.highlights && ath.highlights[0]) || ath.category}
+                                  </span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setEditingProject({
+                                      ...editingProject,
+                                      participants: (editingProject.participants || []).filter(
+                                        (_, i) => i !== idx
+                                      ),
+                                    })
+                                  }
+                                  className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
+                                  title="Remover atleta"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 3. Requisitos de Matrícula (functioning.requirements) */}
+                      <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-2.5">
+                        <span className="font-black text-xs uppercase text-[#0a1e36] block">
+                          Requisitos & Documentos para Matrícula ({(editingProject.functioning?.requirements || []).length})
+                        </span>
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={newRequirementText}
+                            onChange={(e) => setNewRequirementText(e.target.value)}
+                            placeholder="Ex: Atestado médico de aptidão física atualizado..."
+                            className="flex-1 p-2 bg-white border border-slate-300 rounded-lg"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!newRequirementText.trim()) return;
+                              const currentFunc = editingProject.functioning || {
+                                overview: editingProject.description || '',
+                                methodology: '',
+                                requirements: [],
+                                scheduleDetails: [],
+                                benefits: [],
+                              };
+                              setEditingProject({
+                                ...editingProject,
+                                functioning: {
+                                  ...currentFunc,
+                                  requirements: [
+                                    ...(currentFunc.requirements || []),
+                                    newRequirementText.trim(),
+                                  ],
+                                },
+                              });
+                              setNewRequirementText('');
+                            }}
+                            className="px-3 py-2 bg-[#0a1e36] text-white font-bold rounded-lg cursor-pointer"
+                          >
+                            + Requisito
+                          </button>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {(editingProject.functioning?.requirements || []).map((req: string, idx: number) => (
+                            <span
+                              key={idx}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-[11px] text-slate-700"
+                            >
+                              <span>{req}</span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const currentFunc = editingProject.functioning;
+                                  if (!currentFunc) return;
+                                  setEditingProject({
+                                    ...editingProject,
+                                    functioning: {
+                                      ...currentFunc,
+                                      requirements: (currentFunc.requirements || []).filter(
+                                        (_: string, i: number) => i !== idx
+                                      ),
+                                    },
+                                  });
+                                }}
+                                className="text-slate-400 hover:text-rose-600 font-bold cursor-pointer"
+                              >
+                                ✕
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
 
                       {/* Project File Attachments */}
                       <AttachmentsEditor
@@ -5247,8 +5924,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                       category: 'Festivais Esportivos',
                       date: 'Outubro 2026',
                       location: 'Polo Rio Marinho · Cariacica/ES',
-                      // Capa vazia: a primeira foto enviada vira a capa automaticamente
-                      coverUrl: '',
+                      coverUrl:
+                        'https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=1000&q=80',
                       caption: '',
                       albumPhotos: [],
                     });
@@ -5319,7 +5996,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           <Edit3 className="w-3.5 h-3.5" />
                           <span>Editar Fotos ({album.albumPhotos.length})</span>
                         </button>
-                        <button aria-label="Excluir álbum"
+                        <button
                           onClick={() => {
                             requestPinProtectedAction(() => {
                               setDraftAlbums((prev) => prev.filter((a) => a.id !== album.id));
@@ -5343,25 +6020,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
               {/* Create / Edit Album Modal */}
               {(isCreatingAlbum || editingAlbum) && editingAlbum && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
-                  <div
-                    ref={albumDialogRef}
-                    role="dialog"
-                    aria-modal="true"
-                    aria-labelledby={`${fid}-album-title`}
-                    className="bg-white rounded-2xl max-w-4xl w-full p-6 shadow-2xl border border-slate-200 space-y-5 max-h-[92vh] overflow-y-auto"
-                  >
+                  <div className="bg-white rounded-2xl max-w-4xl w-full p-6 shadow-2xl border border-slate-200 space-y-5 max-h-[92vh] overflow-y-auto">
                     <div className="flex items-center justify-between border-b pb-3">
                       <div>
                         <span className="text-[10px] font-bold text-[#0284c7] uppercase">
                           Memória Esportiva & Lightbox
                         </span>
-                        <h3 id={`${fid}-album-title`} className="font-black text-base text-[#0a1e36] uppercase">
+                        <h3 className="font-black text-base text-[#0a1e36] uppercase">
                           {isCreatingAlbum ? 'Criar Novo Álbum de Fotos' : 'Editar Álbum e Fotos'}
                         </h3>
                       </div>
                       <button
-                        type="button"
-                        aria-label="Fechar"
                         onClick={() => {
                           setIsCreatingAlbum(false);
                           setEditingAlbum(null);
@@ -5375,10 +6044,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                     <div className="space-y-4 text-xs">
                       <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
                         <div className="sm:col-span-7">
-                          <label htmlFor={`${fid}-f55`} className="block font-bold text-slate-700 uppercase mb-1">
+                          <label className="block font-bold text-slate-700 uppercase mb-1">
                             Título do Álbum *
                           </label>
-                          <input id={`${fid}-f55`}
+                          <input
                             type="text"
                             value={editingAlbum.title}
                             onChange={(e) =>
@@ -5390,10 +6059,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         </div>
 
                         <div className="sm:col-span-5">
-                          <label htmlFor={`${fid}-f56`} className="block font-bold text-slate-700 uppercase mb-1">
+                          <label className="block font-bold text-slate-700 uppercase mb-1">
                             Categoria da Galeria *
                           </label>
-                          <select id={`${fid}-f56`}
+                          <select
                             value={editingAlbum.category}
                             onChange={(e) =>
                               setEditingAlbum({
@@ -5413,10 +6082,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
-                          <label htmlFor={`${fid}-f57`} className="block font-bold text-slate-700 uppercase mb-1">
+                          <label className="block font-bold text-slate-700 uppercase mb-1">
                             Mês / Ano de Realização
                           </label>
-                          <input id={`${fid}-f57`}
+                          <input
                             type="text"
                             value={editingAlbum.date}
                             onChange={(e) =>
@@ -5428,10 +6097,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         </div>
 
                         <div>
-                          <label htmlFor={`${fid}-f58`} className="block font-bold text-slate-700 uppercase mb-1">
+                          <label className="block font-bold text-slate-700 uppercase mb-1">
                             Local do Evento
                           </label>
-                          <input id={`${fid}-f58`}
+                          <input
                             type="text"
                             value={editingAlbum.location}
                             onChange={(e) =>
@@ -5444,10 +6113,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                       </div>
 
                       <div>
-                        <label htmlFor={`${fid}-f59`} className="block font-bold text-slate-700 uppercase mb-1">
+                        <label className="block font-bold text-slate-700 uppercase mb-1">
                           Descrição / Resumo do Álbum
                         </label>
-                        <textarea id={`${fid}-f59`}
+                        <textarea
                           rows={2}
                           value={editingAlbum.caption}
                           onChange={(e) =>
@@ -5478,11 +6147,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                             </span>
                           </div>
 
-                          <label className="px-4 py-2 bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-bold rounded-xl cursor-pointer inline-flex items-center gap-1.5 shadow-xs self-start sm:self-auto focus-within:ring-2 focus-within:ring-sky-500 focus-within:ring-offset-1">
+                          <label className="px-4 py-2 bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-bold rounded-xl cursor-pointer inline-flex items-center gap-1.5 shadow-xs self-start sm:self-auto">
                             <Upload className="w-3.5 h-3.5" />
                             <span>
                               {isUploadingAlbumPhotos
-                                ? 'Processando fotos…'
+                                ? 'Processando fotos...'
                                 : '+ Anexar Fotos do Computador'}
                             </span>
                             <input
@@ -5490,7 +6159,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                               multiple
                               accept="image/*"
                               onChange={handleGalleryPhotosUpload}
-                              className="sr-only"
+                              className="hidden"
                               disabled={isUploadingAlbumPhotos}
                             />
                           </label>
@@ -5499,27 +6168,26 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         {/* Add Photo via URL */}
                         <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-end bg-white p-3 rounded-lg border border-slate-200">
                           <div className="sm:col-span-5">
-                            <label htmlFor={`${fid}-f60`} className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
+                            <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
                               Adicionar Foto por URL
                             </label>
-                            <input id={`${fid}-f60`}
+                            <input
                               type="url"
-                              spellCheck={false}
                               value={newPhotoUrl}
                               onChange={(e) => setNewPhotoUrl(e.target.value)}
-                              placeholder="https://…"
+                              placeholder="https://..."
                               className="w-full p-2 bg-slate-50 border border-slate-300 rounded-md"
                             />
                           </div>
                           <div className="sm:col-span-5">
-                            <label htmlFor={`${fid}-f61`} className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
+                            <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
                               Legenda da Foto
                             </label>
-                            <input id={`${fid}-f61`}
+                            <input
                               type="text"
                               value={newPhotoCaption}
                               onChange={(e) => setNewPhotoCaption(e.target.value)}
-                              placeholder="Descrição do momento registrado…"
+                              placeholder="Descrição do momento registrado..."
                               className="w-full p-2 bg-slate-50 border border-slate-300 rounded-md"
                             />
                           </div>
@@ -5567,7 +6235,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                   className="w-20 h-16 rounded-lg object-cover bg-slate-100 shrink-0 border border-slate-200"
                                 />
                                 <div className="flex-1 min-w-0 space-y-1.5">
-                                  <input aria-label={`Legenda da foto ${pIdx + 1}`}
+                                  <input
                                     type="text"
                                     value={photo.caption}
                                     onChange={(e) => {
@@ -5578,7 +6246,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                       };
                                       setEditingAlbum({ ...editingAlbum, albumPhotos: updated });
                                     }}
-                                    placeholder="Legenda da foto…"
+                                    placeholder="Legenda da foto..."
                                     className="w-full p-1.5 text-[11px] bg-slate-50 border border-slate-200 rounded"
                                   />
                                   <div className="flex items-center justify-between">
@@ -5605,7 +6273,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                         );
                                         setEditingAlbum({ ...editingAlbum, albumPhotos: updated });
                                       }}
-                                      aria-label={`Remover foto ${pIdx + 1}`}
                                       className="text-rose-600 hover:underline text-[10px] font-bold cursor-pointer"
                                     >
                                       Remover
@@ -5658,8 +6325,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                 docCategoryFilter === 'all' || doc.category === docCategoryFilter;
               const matchQuery =
                 !docSearch.trim() ||
-                doc.title.toLowerCase().includes(docSearch.toLowerCase()) ||
-                doc.description.toLowerCase().includes(docSearch.toLowerCase());
+                (doc.title || '').toLowerCase().includes(docSearch.toLowerCase()) ||
+                (doc.description || '').toLowerCase().includes(docSearch.toLowerCase());
               return matchCat && matchQuery;
             });
 
@@ -5668,10 +6335,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                 <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div>
                     <h2 className="text-xl font-black text-[#0a1e36] uppercase">
-                      Portal da Transparência & Anexos (Lei 13.019/14)
+                      Portal da Transparência, Relatórios & Sócio-Torcedores
                     </h2>
                     <p className="text-xs text-slate-600 mt-0.5">
-                      Anexe arquivos PDF, DOCX, planilhas ou certidões para download público imediato ({draftDocs.length} documentos).
+                      Gerencie a contagem de Sócio-Torcedores, o Dashboard Financeiro e os relatórios e certidões para download público ({draftDocs.length} documentos).
                     </p>
                   </div>
 
@@ -5681,36 +6348,202 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                       setEditingDoc({
                         id: '',
                         title: '',
-                        category: 'estatuto',
+                        category: 'prestacao_contas',
                         date: new Date().toLocaleDateString('pt-BR'),
                         description: '',
-                        fileType: 'PDF',
-                        badge: 'Vigente',
+                        fileType: 'Relatório PDF',
+                        badge: 'Aprovado',
+                        period: 'Exercício 2026',
+                        protocolNumber: `REL-2026/${String(draftDocs.length + 1).padStart(3, '0')}`,
+                        responsible: 'Diretoria Executiva & Conselho Fiscal',
+                        summaryPoints: [],
                       });
                     }}
                     className="px-4 py-2.5 bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-bold uppercase rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer self-start sm:self-auto"
                   >
                     <Plus className="w-4 h-4" />
-                    <span>+ Publicar Documento / Anexo</span>
+                    <span>+ Publicar Relatório / Arquivo</span>
                   </button>
                 </div>
+
+                {/* Sócio-Torcedores & Dashboard KPIs Editor */}
+                {(() => {
+                  const defaultDash = DEFAULT_SITE_SETTINGS.transparencyDashboard!;
+                  const rawDash = draftSiteSettings.transparencyDashboard || defaultDash;
+                  const dash = {
+                    ...defaultDash,
+                    ...rawDash,
+                  };
+                  const updateDash = (patch: Partial<typeof dash>) => {
+                    setDraftSiteSettings({
+                      ...draftSiteSettings,
+                      transparencyDashboard: {
+                        ...dash,
+                        ...patch,
+                      },
+                    });
+                  };
+                  return (
+                    <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                        <div>
+                          <span className="text-[10px] font-bold text-[#0284c7] uppercase">
+                            Indicadores em Tempo Real
+                          </span>
+                          <h3 className="text-sm font-black text-[#0a1e36] uppercase">
+                            Dashboard Financeiro & Contagem de Sócio-Torcedores
+                          </h3>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleSaveAllAdminChanges(
+                              'Indicadores de Sócio-Torcedores e Dashboard atualizados!'
+                            )
+                          }
+                          className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl inline-flex items-center gap-1.5 cursor-pointer self-start sm:self-auto"
+                        >
+                          <Save className="w-3.5 h-3.5" />
+                          <span>Salvar Indicadores do Dashboard</span>
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 text-xs">
+                        <div>
+                          <label className="block font-bold text-slate-700 mb-1">
+                            Sócio-Torcedores Ativos
+                          </label>
+                          <input
+                            type="number"
+                            value={dash.socioTorcedoresTotal}
+                            onChange={(e) =>
+                              updateDash({
+                                socioTorcedoresTotal: Math.max(0, Number(e.target.value) || 0),
+                              })
+                            }
+                            className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900"
+                          />
+                        </div>
+                        <div>
+                          <label className="block font-bold text-slate-700 mb-1">
+                            Meta Anual de Sócios
+                          </label>
+                          <input
+                            type="number"
+                            value={dash.socioTorcedoresGoal}
+                            onChange={(e) =>
+                              updateDash({
+                                socioTorcedoresGoal: Math.max(1, Number(e.target.value) || 1),
+                              })
+                            }
+                            className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900"
+                          />
+                        </div>
+                        <div>
+                          <label className="block font-bold text-slate-700 mb-1">
+                            Novos Sócios no Mês
+                          </label>
+                          <input
+                            type="number"
+                            value={dash.socioTorcedoresNewMonth}
+                            onChange={(e) =>
+                              updateDash({
+                                socioTorcedoresNewMonth: Math.max(0, Number(e.target.value) || 0),
+                              })
+                            }
+                            className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900"
+                          />
+                        </div>
+                        <div>
+                          <label className="block font-bold text-slate-700 mb-1">
+                            Beneficiários Diretos Atendidos
+                          </label>
+                          <input
+                            type="number"
+                            value={dash.directBeneficiaries}
+                            onChange={(e) =>
+                              updateDash({
+                                directBeneficiaries: Math.max(0, Number(e.target.value) || 0),
+                              })
+                            }
+                            className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900"
+                          />
+                        </div>
+                        <div>
+                          <label className="block font-bold text-slate-700 mb-1">
+                            Receita Captada no Ano (R$)
+                          </label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={dash.totalRevenue}
+                            onChange={(e) =>
+                              updateDash({
+                                totalRevenue: Math.max(0, Number(e.target.value) || 0),
+                              })
+                            }
+                            className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900"
+                          />
+                        </div>
+                        <div>
+                          <label className="block font-bold text-slate-700 mb-1">
+                            Investido em Projetos (R$)
+                          </label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={dash.totalInvested}
+                            onChange={(e) =>
+                              updateDash({
+                                totalInvested: Math.max(0, Number(e.target.value) || 0),
+                              })
+                            }
+                            className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900"
+                          />
+                        </div>
+                        <div>
+                          <label className="block font-bold text-slate-700 mb-1">
+                            Data da Última Auditoria
+                          </label>
+                          <input
+                            type="text"
+                            value={dash.lastAuditDate}
+                            onChange={(e) => updateDash({ lastAuditDate: e.target.value })}
+                            className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-semibold text-slate-900"
+                          />
+                        </div>
+                        <div>
+                          <label className="block font-bold text-slate-700 mb-1">
+                            Parecer / Status Fiscal
+                          </label>
+                          <input
+                            type="text"
+                            value={dash.auditStatus}
+                            onChange={(e) => updateDash({ auditStatus: e.target.value })}
+                            className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-semibold text-slate-900"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Search & Category Filter */}
                 <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row gap-3 items-center justify-between">
                   <div className="relative w-full sm:w-80">
                     <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input aria-label="Buscar documento, ata ou certidão"
-                      type="search"
+                    <input
+                      type="text"
                       value={docSearch}
                       onChange={(e) => setDocSearch(e.target.value)}
-                      placeholder="Buscar documento, ata ou certidão…"
+                      placeholder="Buscar documento, protocolo, ata ou certidão..."
                       className="w-full text-xs pl-9 pr-8 py-2 bg-slate-50 border border-slate-300 rounded-xl"
                     />
                   </div>
 
                   <div className="flex items-center gap-2 w-full sm:w-auto">
-                    <label htmlFor={`${fid}-f62`} className="text-xs font-bold text-slate-600">Categoria:</label>
-                    <select id={`${fid}-f62`}
+                    <label className="text-xs font-bold text-slate-600">Categoria:</label>
+                    <select
                       value={docCategoryFilter}
                       onChange={(e) => setDocCategoryFilter(e.target.value)}
                       className="text-xs p-2 bg-slate-50 border border-slate-300 rounded-xl"
@@ -5730,25 +6563,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                 {/* Doc Modal with Direct File Dropzone */}
                 {(isCreatingDoc || editingDoc) && editingDoc && (
                   <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
-                    <div
-                      ref={docDialogRef}
-                      role="dialog"
-                      aria-modal="true"
-                      aria-labelledby={`${fid}-doc-title`}
-                      className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[92vh] overflow-y-auto"
-                    >
+                    <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[92vh] overflow-y-auto">
                       <div className="flex items-center justify-between border-b pb-3">
                         <div>
                           <span className="text-[10px] font-bold text-[#0284c7] uppercase">
                             MROSC · Lei Federal 13.019/2014
                           </span>
-                          <h3 id={`${fid}-doc-title`} className="font-black text-base text-[#0a1e36] uppercase">
-                            {isCreatingDoc ? 'Publicar Documento Oficial' : 'Editar Documento'}
+                          <h3 className="font-black text-base text-[#0a1e36] uppercase">
+                            {isCreatingDoc ? 'Publicar Documento ou Relatório Oficial' : 'Editar Documento / Relatório'}
                           </h3>
                         </div>
                         <button
-                          type="button"
-                          aria-label="Fechar"
                           onClick={() => {
                             setIsCreatingDoc(false);
                             setEditingDoc(null);
@@ -5773,11 +6598,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           </div>
 
                           <div className="flex justify-center">
-                            <label className="px-4 py-2 bg-[#0284c7] hover:bg-[#0369a1] text-white font-bold rounded-lg cursor-pointer inline-flex items-center gap-1.5 shadow-2xs focus-within:ring-2 focus-within:ring-sky-500 focus-within:ring-offset-1">
+                            <label className="px-4 py-2 bg-[#0284c7] hover:bg-[#0369a1] text-white font-bold rounded-lg cursor-pointer inline-flex items-center gap-1.5 shadow-2xs">
                               <Upload className="w-3.5 h-3.5" />
                               <span>
                                 {isUploadingDocFile
-                                  ? 'Processando arquivo…'
+                                  ? 'Processando arquivo...'
                                   : editingDoc.fileName
                                   ? 'Substituir Arquivo Anexado'
                                   : 'Selecionar Arquivo no Computador'}
@@ -5786,7 +6611,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                                 type="file"
                                 accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,image/*"
                                 onChange={handleTransparencyFileUpload}
-                                className="sr-only"
+                                className="hidden"
                                 disabled={isUploadingDocFile}
                               />
                             </label>
@@ -5826,26 +6651,26 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         </div>
 
                         <div>
-                          <label htmlFor={`${fid}-f63`} className="block font-bold text-slate-700 uppercase mb-1">
-                            Título do Documento *
+                          <label className="block font-bold text-slate-700 uppercase mb-1">
+                            Título do Documento / Relatório *
                           </label>
-                          <input id={`${fid}-f63`}
+                          <input
                             type="text"
                             value={editingDoc.title}
                             onChange={(e) =>
                               setEditingDoc({ ...editingDoc, title: e.target.value })
                             }
-                            placeholder="Ex: Estatuto Social Consolidado 2026"
+                            placeholder="Ex: Relatório Executivo de Atividades e Prestação de Contas 2026"
                             className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg font-semibold"
                           />
                         </div>
 
                         <div className="grid grid-cols-3 gap-3">
                           <div>
-                            <label htmlFor={`${fid}-f64`} className="block font-bold text-slate-700 uppercase mb-1">
+                            <label className="block font-bold text-slate-700 uppercase mb-1">
                               Categoria *
                             </label>
-                            <select id={`${fid}-f64`}
+                            <select
                               value={editingDoc.category}
                               onChange={(e) =>
                                 setEditingDoc({
@@ -5866,10 +6691,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           </div>
 
                           <div>
-                            <label htmlFor={`${fid}-f65`} className="block font-bold text-slate-700 uppercase mb-1">
+                            <label className="block font-bold text-slate-700 uppercase mb-1">
                               Formato
                             </label>
-                            <input id={`${fid}-f65`}
+                            <input
                               type="text"
                               value={editingDoc.fileType || 'PDF'}
                               onChange={(e) =>
@@ -5880,10 +6705,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           </div>
 
                           <div>
-                            <label htmlFor={`${fid}-f66`} className="block font-bold text-slate-700 uppercase mb-1">
+                            <label className="block font-bold text-slate-700 uppercase mb-1">
                               Status / Selo
                             </label>
-                            <input id={`${fid}-f66`}
+                            <input
                               type="text"
                               value={editingDoc.badge}
                               onChange={(e) =>
@@ -5894,12 +6719,59 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           </div>
                         </div>
 
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <div>
+                            <label className="block font-bold text-slate-700 uppercase mb-1">
+                              Protocolo / Registro
+                            </label>
+                            <input
+                              type="text"
+                              value={editingDoc.protocolNumber || ''}
+                              onChange={(e) =>
+                                setEditingDoc({ ...editingDoc, protocolNumber: e.target.value })
+                              }
+                              placeholder="Ex: REL-2026/004"
+                              className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block font-bold text-slate-700 uppercase mb-1">
+                              Período / Vigência
+                            </label>
+                            <input
+                              type="text"
+                              value={editingDoc.period || ''}
+                              onChange={(e) =>
+                                setEditingDoc({ ...editingDoc, period: e.target.value })
+                              }
+                              placeholder="Ex: 3º Trimestre 2026"
+                              className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block font-bold text-slate-700 uppercase mb-1">
+                              Valor / Indicador
+                            </label>
+                            <input
+                              type="text"
+                              value={editingDoc.financialValue || ''}
+                              onChange={(e) =>
+                                setEditingDoc({ ...editingDoc, financialValue: e.target.value })
+                              }
+                              placeholder="Ex: R$ 144.188,00"
+                              className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg"
+                            />
+                          </div>
+                        </div>
+
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div>
-                            <label htmlFor={`${fid}-f67`} className="block font-bold text-slate-700 uppercase mb-1">
+                            <label className="block font-bold text-slate-700 uppercase mb-1">
                               Data de Atualização
                             </label>
-                            <input id={`${fid}-f67`}
+                            <input
                               type="text"
                               value={editingDoc.date}
                               onChange={(e) =>
@@ -5910,32 +6782,52 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           </div>
 
                           <div>
-                            <label htmlFor={`${fid}-f68`} className="block font-bold text-slate-700 uppercase mb-1">
+                            <label className="block font-bold text-slate-700 uppercase mb-1">
                               Link Externo Opcional (URL)
                             </label>
-                            <input id={`${fid}-f68`}
+                            <input
                               type="url"
-                              spellCheck={false}
                               value={editingDoc.downloadUrl || ''}
                               onChange={(e) =>
                                 setEditingDoc({ ...editingDoc, downloadUrl: e.target.value })
                               }
-                              placeholder="https://…"
+                              placeholder="https://..."
                               className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg"
                             />
                           </div>
                         </div>
 
                         <div>
-                          <label htmlFor={`${fid}-f69`} className="block font-bold text-slate-700 uppercase mb-1">
+                          <label className="block font-bold text-slate-700 uppercase mb-1">
                             Descrição e Finalidade
                           </label>
-                          <textarea id={`${fid}-f69`}
-                            rows={3}
+                          <textarea
+                            rows={2}
                             value={editingDoc.description}
                             onChange={(e) =>
                               setEditingDoc({ ...editingDoc, description: e.target.value })
                             }
+                            className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block font-bold text-slate-700 uppercase mb-1">
+                            Destaques Executivos do Relatório (1 por linha)
+                          </label>
+                          <textarea
+                            rows={3}
+                            value={(editingDoc.summaryPoints || []).join('\n')}
+                            onChange={(e) =>
+                              setEditingDoc({
+                                ...editingDoc,
+                                summaryPoints: e.target.value
+                                  .split('\n')
+                                  .map((line) => line.trim())
+                                  .filter(Boolean),
+                              })
+                            }
+                            placeholder="Ex: 415 beneficiários atendidos gratuitamente&#10;Parecer favorável do Conselho Fiscal"
                             className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg"
                           />
                         </div>
@@ -6008,7 +6900,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
                           <div className="flex items-center gap-1.5 flex-shrink-0">
                             {hasAttachedFile && (
-                              <a aria-label="Baixar arquivo anexado"
+                              <a
                                 href={doc.fileDataUrl || doc.downloadUrl}
                                 download={doc.fileName || `${doc.title}.pdf`}
                                 target="_blank"
@@ -6030,7 +6922,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                               <Edit3 className="w-3.5 h-3.5" />
                               <span>{hasAttachedFile ? 'Editar' : 'Anexar / Editar'}</span>
                             </button>
-                            <button aria-label="Excluir"
+                            <button
                               onClick={() => {
                                 requestPinProtectedAction(() => {
                                   setDraftDocs((prev) => prev.filter((d) => d.id !== doc.id));
@@ -6081,11 +6973,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
               ];
               const rows = filteredRsvps.map((r) => [
                 r.confirmationCode,
-                `"${r.name.replace(/"/g, '""')}"`,
-                `"${r.phone}"`,
-                `"${r.eventTitle.replace(/"/g, '""')}"`,
+                `"${(r.name || '').replace(/"/g, '""')}"`,
+                `"${r.phone || ''}"`,
+                `"${(r.eventTitle || '').replace(/"/g, '""')}"`,
                 r.spots,
-                `"${r.date}"`,
+                `"${r.date || ''}"`,
               ]);
               const csvContent =
                 '\uFEFF' + [headers.join(';'), ...rows.map((row) => row.join(';'))].join('\r\n');
@@ -6149,25 +7041,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                 {/* Manual RSVP Create/Edit Modal */}
                 {editingRsvpItem && (
                   <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
-                    <div
-                      ref={rsvpDialogRef}
-                      role="dialog"
-                      aria-modal="true"
-                      aria-labelledby={`${fid}-rsvp-title`}
-                      className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4"
-                    >
+                    <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4">
                       <div className="flex items-center justify-between border-b pb-3">
                         <div>
                           <span className="text-[10px] font-bold text-[#0284c7] uppercase">
                             Controle de Participantes
                           </span>
-                          <h3 id={`${fid}-rsvp-title`} className="font-black text-base text-[#0a1e36] uppercase">
+                          <h3 className="font-black text-base text-[#0a1e36] uppercase">
                             {isCreatingRsvp ? 'Cadastrar Inscrição Manual' : 'Editar Inscrição'}
                           </h3>
                         </div>
                         <button
                           type="button"
-                          aria-label="Fechar"
                           onClick={() => {
                             setEditingRsvpItem(null);
                             setIsCreatingRsvp(false);
@@ -6180,21 +7065,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
                       <div className="space-y-3.5 text-xs">
                         <div>
-                          <label htmlFor={`${fid}-f70`} className="block font-bold text-slate-700 uppercase mb-1">
+                          <label className="block font-bold text-slate-700 uppercase mb-1">
                             Evento / Atividade Esportiva *
                           </label>
-                          <select id={`${fid}-f70`}
+                          <select
                             value={editingRsvpItem.eventId}
                             onChange={(e) => {
                               const val = e.target.value;
                               const foundEv = draftEvents.find((ev) => ev.id === val);
-                              const modalityName = MODALITY_NAMES[val.replace(/^modalidade-/, '')];
                               setEditingRsvpItem({
                                 ...editingRsvpItem,
                                 eventId: val,
                                 eventTitle: foundEv
                                   ? foundEv.title
-                                  : `${modalityName || val} — Polo Rio Marinho`,
+                                  : val === 'modalidade-iniciacao_esportiva'
+                                  ? 'Iniciação Esportiva (Futsal, Vôlei) — Polo Rio Marinho'
+                                  : val === 'modalidade-condicionamento_fisico'
+                                  ? 'Condicionamento Físico & Saúde — Polo Rio Marinho'
+                                  : 'Projeto Vida Ativa (Pessoas Idosas) — Polo Rio Marinho',
                               });
                             }}
                             className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg font-medium"
@@ -6207,20 +7095,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                               ))}
                             </optgroup>
                             <optgroup label="Escolinhas e Modalidades Permanentes">
-                              {Object.entries(MODALITY_NAMES).map(([key, name]) => (
-                                <option key={key} value={`modalidade-${key}`}>
-                                  {name}
-                                </option>
-                              ))}
+                              <option value="modalidade-iniciacao_esportiva">
+                                Iniciação Esportiva (Futsal, Vôlei) — Polo Rio Marinho
+                              </option>
+                              <option value="modalidade-condicionamento_fisico">
+                                Condicionamento Físico & Saúde — Polo Rio Marinho
+                              </option>
+                              <option value="modalidade-vida_ativa_idosos">
+                                Projeto Vida Ativa (Pessoas Idosas) — Polo Rio Marinho
+                              </option>
                             </optgroup>
                           </select>
                         </div>
 
                         <div>
-                          <label htmlFor={`${fid}-f71`} className="block font-bold text-slate-700 uppercase mb-1">
+                          <label className="block font-bold text-slate-700 uppercase mb-1">
                             Nome Completo do Participante / Aluno *
                           </label>
-                          <input id={`${fid}-f71`}
+                          <input
                             type="text"
                             value={editingRsvpItem.name}
                             onChange={(e) =>
@@ -6233,10 +7125,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div>
-                            <label htmlFor={`${fid}-f72`} className="block font-bold text-slate-700 uppercase mb-1">
+                            <label className="block font-bold text-slate-700 uppercase mb-1">
                               Telefone / WhatsApp *
                             </label>
-                            <input id={`${fid}-f72`}
+                            <input
                               type="tel"
                               value={editingRsvpItem.phone}
                               onChange={(e) =>
@@ -6248,10 +7140,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                           </div>
 
                           <div>
-                            <label htmlFor={`${fid}-f73`} className="block font-bold text-slate-700 uppercase mb-1">
+                            <label className="block font-bold text-slate-700 uppercase mb-1">
                               Quantidade de Vagas
                             </label>
-                            <input id={`${fid}-f73`}
+                            <input
                               type="number"
                               min={1}
                               max={10}
@@ -6302,17 +7194,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                 <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row gap-3 items-center justify-between">
                   <div className="relative w-full sm:w-80">
                     <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input aria-label="Buscar por nome, telefone, código"
-                      type="search"
+                    <input
+                      type="text"
                       value={rsvpSearch}
                       onChange={(e) => setRsvpSearch(e.target.value)}
-                      placeholder="Buscar por nome, telefone, código…"
+                      placeholder="Buscar por nome, telefone, código..."
                       className="w-full text-xs pl-9 pr-8 py-2 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-none"
                     />
                     {rsvpSearch && (
                       <button
-                        type="button"
-                        aria-label="Limpar busca"
                         onClick={() => setRsvpSearch('')}
                         className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                       >
@@ -6322,8 +7212,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   </div>
 
                   <div className="w-full sm:w-auto flex items-center gap-2">
-                    <label htmlFor={`${fid}-f74`} className="text-xs font-bold text-slate-600 whitespace-nowrap">Filtrar Atividade:</label>
-                    <select id={`${fid}-f74`}
+                    <label className="text-xs font-bold text-slate-600 whitespace-nowrap">Filtrar Atividade:</label>
+                    <select
                       value={rsvpEventFilter}
                       onChange={(e) => setRsvpEventFilter(e.target.value)}
                       className="text-xs p-2 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500"
@@ -6372,7 +7262,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                             </td>
                             <td className="p-3.5 text-slate-400 text-[11px]">{r.date}</td>
                             <td className="p-3.5 text-right space-x-1 whitespace-nowrap">
-                              <button aria-label="Editar inscrição"
+                              <button
                                 onClick={() => {
                                   setIsCreatingRsvp(false);
                                   setEditingRsvpItem({ ...r });
@@ -6382,23 +7272,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                               >
                                 <Edit3 className="w-3.5 h-3.5" />
                               </button>
-                              <button aria-label="Cancelar inscrição"
+                              <button
                                 onClick={() => {
                                   requestPinProtectedAction(() => {
                                     setDraftRsvps((prev) => prev.filter((item) => item.id !== r.id));
                                     setDraftEvents((prev) =>
                                       prev.map((ev) =>
                                         ev.id === r.eventId
-                                          ? withSpotsStatus(
-                                              {
-                                                ...ev,
-                                                availableSpots: Math.min(
-                                                  ev.capacity,
-                                                  ev.availableSpots + r.spots
-                                                ),
-                                              },
-                                              ev.availableSpots
-                                            )
+                                          ? {
+                                              ...ev,
+                                              availableSpots: Math.min(
+                                                ev.capacity,
+                                                ev.availableSpots + r.spots
+                                              ),
+                                            }
                                           : ev
                                       )
                                     );
@@ -6488,11 +7375,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                 <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row gap-3 items-center justify-between">
                   <div className="relative w-full sm:w-80">
                     <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input aria-label="Buscar por nome, assunto ou mensagem"
-                      type="search"
+                    <input
+                      type="text"
                       value={msgSearch}
                       onChange={(e) => setMsgSearch(e.target.value)}
-                      placeholder="Buscar por nome, assunto ou mensagem…"
+                      placeholder="Buscar por nome, assunto ou mensagem..."
                       className="w-full text-xs pl-9 pr-8 py-2 bg-slate-50 border border-slate-300 rounded-xl"
                     />
                   </div>
@@ -6507,7 +7394,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         key={tab.id}
                         type="button"
                         onClick={() => setMsgStatusFilter(tab.id as any)}
-                        aria-pressed={msgStatusFilter === tab.id}
                         className={`px-3 py-1 rounded-lg cursor-pointer transition-colors ${
                           msgStatusFilter === tab.id
                             ? 'bg-[#0a1e36] text-white'
@@ -6528,7 +7414,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                 ) : (
                   <div className="space-y-3">
                     {filteredMsgs.map((msg) => {
-                      const cleanWhatsApp = msg.phone.replace(/\D/g, '');
+                      const cleanWhatsApp = (msg.phone || '').replace(/\D/g, '');
                       const whatsappHref =
                         cleanWhatsApp.length >= 10
                           ? `https://wa.me/55${cleanWhatsApp}?text=${encodeURIComponent(
@@ -6606,9 +7492,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                               >
                                 {msg.read ? 'Marcar Não Lida' : 'Marcar como Lida'}
                               </button>
-                              <button aria-label="Excluir mensagem"
+                              <button
                                 onClick={() => {
-                                  if (!window.confirm(`Excluir a mensagem de ${msg.name}?`)) return;
                                   setDraftMessages((prev) =>
                                     prev.filter((m) => m.id !== msg.id)
                                   );
@@ -6630,9 +7515,963 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
           })()}
 
           {/* ========================================================================= */}
+          {/* TAB SEDES & POLOS DE ATENDIMENTO (FACILITY POLOS CRUD) */}
+          {/* ========================================================================= */}
+          {activeTab === 'polos' && (() => {
+            const poloTypeLabel: Record<FacilityPolo['type'], string> = {
+              polo_principal: 'Polo Principal',
+              quadra_poliesportiva: 'Núcleo Esportivo',
+              sala_atividades: 'Sala Multiuso / Pedagógica',
+              espaco_saude: 'Espaço Saúde & Funcional',
+            };
+
+            return (
+              <div className="space-y-8">
+                {/* 1. GESTÃO DE SEDES & POLOS DE ATENDIMENTO */}
+                <div className="space-y-4">
+                  <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                      <span className="text-[10px] font-black uppercase tracking-widest text-[#0284c7]">
+                        Unidades de Atendimento dos Projetos
+                      </span>
+                      <h2 className="text-xl font-black text-[#0a1e36] uppercase mt-0.5">
+                        Sedes e Polos de Atendimento ({draftPolos.length})
+                      </h2>
+                      <p className="text-xs text-slate-600 mt-0.5">
+                        Gerencie as sedes e polos onde acontecem os projetos sociais, escolinhas e oficinas comunitárias da Vitalizar.
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={() => {
+                        setIsCreatingPolo(true);
+                        setEditingPolo({
+                          id: '',
+                          name: '',
+                          type: 'quadra_poliesportiva',
+                          address: 'Cariacica - ES',
+                          capacity: 'Até 150 pessoas / turno',
+                          maxGuests: 150,
+                          description:
+                            'Espaço comunitário preparado para práticas esportivas, oficinas socioeducativas e eventos de integração.',
+                          imageUrl:
+                            'https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=900&q=80',
+                          includedItems: ['Iluminação LED', 'Vestiários', 'Acessibilidade PcD'],
+                          rules: [
+                            'Uso 100% gratuito mediante agendamento prévio na Secretaria.',
+                            'Proibido o consumo de bebidas alcoólicas e fumo nas dependências esportivas.',
+                          ],
+                        });
+                      }}
+                      className="px-4 py-2.5 bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-bold uppercase rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer self-start sm:self-auto"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>+ Novo Polo / Espaço Esportivo</span>
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {draftPolos.map((polo) => (
+                      <div
+                        key={polo.id}
+                        className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between space-y-4"
+                      >
+                        <div className="space-y-3">
+                          <div className="aspect-16/9 rounded-xl overflow-hidden bg-slate-900 border border-slate-200 relative">
+                            <img
+                              src={polo.imageUrl}
+                              alt={polo.name}
+                              referrerPolicy="no-referrer"
+                              className="w-full h-full object-cover"
+                            />
+                            <span className="absolute top-2.5 left-2.5 px-2.5 py-0.5 bg-[#0a1e36]/90 text-[#38bdf8] rounded-full text-[10px] font-black uppercase">
+                              {poloTypeLabel[polo.type] || 'Polo Esportivo'}
+                            </span>
+                          </div>
+                          <div>
+                            <h3 className="font-black text-sm text-[#0a1e36]">{polo.name}</h3>
+                            <p className="text-xs text-slate-500 mt-0.5">{polo.address}</p>
+                          </div>
+                          <div className="text-[11px] text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-1">
+                            <div>
+                              <strong>Capacidade:</strong> {polo.capacity} (máx. {polo.maxGuests} pessoas)
+                            </div>
+                            <div className="line-clamp-2">{polo.description}</div>
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            {(polo.includedItems || []).slice(0, 4).map((am: string, i: number) => (
+                              <span
+                                key={i}
+                                className="px-2 py-0.5 bg-sky-50 text-[#0284c7] border border-sky-200 rounded text-[10px] font-bold"
+                              >
+                                {am}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+                          <span className="text-[11px] text-slate-400">
+                            {(polo.rules || []).length} norma(s)
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => {
+                                setIsCreatingPolo(false);
+                                setEditingPolo({
+                                  ...polo,
+                                  includedItems: [...(polo.includedItems || [])],
+                                  rules: [...(polo.rules || [])],
+                                });
+                              }}
+                              className="px-3 py-1.5 bg-[#0a1e36] hover:bg-[#0284c7] text-white text-xs font-bold rounded-lg cursor-pointer flex items-center gap-1.5 transition-colors"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                              <span>Editar Polo</span>
+                            </button>
+                            {draftPolos.length > 1 && (
+                              <button
+                                onClick={() => {
+                                  requestPinProtectedAction(() => {
+                                    setDraftPolos((prev) => prev.filter((p) => p.id !== polo.id));
+                                    showToast(
+                                      'Polo removido no rascunho. Clique em "Salvar Alterações" para confirmar.',
+                                      'info'
+                                    );
+                                  });
+                                }}
+                                className="p-1.5 bg-slate-100 hover:bg-rose-100 text-rose-600 rounded-lg cursor-pointer"
+                                title="Excluir polo"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Modal: Create / Edit Facility Polo */}
+                {(isCreatingPolo || editingPolo) && editingPolo && (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
+                    <div className="bg-white rounded-2xl max-w-3xl w-full p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[92vh] overflow-y-auto text-xs">
+                      <div className="flex items-center justify-between border-b pb-3">
+                        <div>
+                          <span className="text-[10px] font-bold text-[#0284c7] uppercase">
+                            Infraestrutura Esportiva
+                          </span>
+                          <h3 className="font-black text-base text-[#0a1e36] uppercase">
+                            {isCreatingPolo
+                              ? 'Cadastrar Novo Polo Esportivo'
+                              : `Editar Polo: ${editingPolo.name}`}
+                          </h3>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setIsCreatingPolo(false);
+                            setEditingPolo(null);
+                          }}
+                          className="text-slate-400 hover:text-slate-600 p-1"
+                        >
+                          ✕
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block font-bold text-slate-700 uppercase mb-1">
+                            Nome Oficial do Polo / Quadra *
+                          </label>
+                          <input
+                            type="text"
+                            value={editingPolo.name}
+                            onChange={(e) =>
+                              setEditingPolo({ ...editingPolo, name: e.target.value })
+                            }
+                            placeholder="Ex: Polo Principal Rio Marinho"
+                            className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg font-bold"
+                          />
+                        </div>
+                        <div>
+                          <label className="block font-bold text-slate-700 uppercase mb-1">
+                            Tipo de Estrutura *
+                          </label>
+                          <select
+                            value={editingPolo.type}
+                            onChange={(e) =>
+                              setEditingPolo({
+                                ...editingPolo,
+                                type: e.target.value as FacilityPolo['type'],
+                              })
+                            }
+                            className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg font-semibold"
+                          >
+                            <option value="polo_principal">Polo Principal</option>
+                            <option value="quadra_poliesportiva">Quadra Poliesportiva</option>
+                            <option value="sala_atividades">Sala de Atividades / Pedagógica</option>
+                            <option value="espaco_saude">Espaço Saúde & Funcional</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div className="sm:col-span-1">
+                          <label className="block font-bold text-slate-700 uppercase mb-1">
+                            Endereço Completo
+                          </label>
+                          <input
+                            type="text"
+                            value={editingPolo.address}
+                            onChange={(e) =>
+                              setEditingPolo({ ...editingPolo, address: e.target.value })
+                            }
+                            className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg"
+                          />
+                        </div>
+                        <div>
+                          <label className="block font-bold text-slate-700 uppercase mb-1">
+                            Capacidade Descritiva
+                          </label>
+                          <input
+                            type="text"
+                            value={editingPolo.capacity}
+                            onChange={(e) =>
+                              setEditingPolo({ ...editingPolo, capacity: e.target.value })
+                            }
+                            className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg"
+                          />
+                        </div>
+                        <div>
+                          <label className="block font-bold text-slate-700 uppercase mb-1">
+                            Público Máximo (Pessoas)
+                          </label>
+                          <input
+                            type="number"
+                            value={editingPolo.maxGuests}
+                            onChange={(e) =>
+                              setEditingPolo({
+                                ...editingPolo,
+                                maxGuests: Math.max(1, Number(e.target.value) || 50),
+                              })
+                            }
+                            className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block font-bold text-slate-700 uppercase mb-1">
+                          Descrição da Infraestrutura
+                        </label>
+                        <textarea
+                          rows={2}
+                          value={editingPolo.description}
+                          onChange={(e) =>
+                            setEditingPolo({ ...editingPolo, description: e.target.value })
+                          }
+                          className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg"
+                        />
+                      </div>
+
+                      <ImageUploadField
+                        label="Foto do Polo / Quadra Esportiva"
+                        imageUrl={editingPolo.imageUrl}
+                        onChange={(newUrl) => setEditingPolo({ ...editingPolo, imageUrl: newUrl })}
+                        onError={(msg) => showToast(msg, 'error')}
+                      />
+
+                      {/* Included Items / Amenities */}
+                      <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                        <label className="block font-bold text-slate-700 uppercase">
+                          Infraestrutura & Comodidades ({(editingPolo.includedItems || []).length})
+                        </label>
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={newPoloAmenity}
+                            onChange={(e) => setNewPoloAmenity(e.target.value)}
+                            placeholder="Ex: Iluminação de LED, Vestiários, Arquibancada..."
+                            className="flex-1 p-2 bg-white border border-slate-300 rounded-lg"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!newPoloAmenity.trim()) return;
+                              setEditingPolo({
+                                ...editingPolo,
+                                includedItems: [
+                                  ...(editingPolo.includedItems || []),
+                                  newPoloAmenity.trim(),
+                                ],
+                              });
+                              setNewPoloAmenity('');
+                            }}
+                            className="px-3 py-2 bg-[#0284c7] text-white font-bold rounded-lg cursor-pointer"
+                          >
+                            + Item
+                          </button>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {(editingPolo.includedItems || []).map((am: string, idx: number) => (
+                            <span
+                              key={idx}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 bg-white border border-slate-200 rounded-lg font-semibold"
+                            >
+                              <span>{am}</span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setEditingPolo({
+                                    ...editingPolo,
+                                    includedItems: (editingPolo.includedItems || []).filter(
+                                      (_: string, i: number) => i !== idx
+                                    ),
+                                  })
+                                }
+                                className="text-slate-400 hover:text-rose-600 font-bold cursor-pointer"
+                              >
+                                ✕
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Usage Rules */}
+                      <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                        <label className="block font-bold text-slate-700 uppercase">
+                          Regras de Uso Comunitário ({(editingPolo.rules || []).length})
+                        </label>
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={newPoloRule}
+                            onChange={(e) => setNewPoloRule(e.target.value)}
+                            placeholder="Ex: Uso 100% gratuito mediante agendamento..."
+                            className="flex-1 p-2 bg-white border border-slate-300 rounded-lg"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!newPoloRule.trim()) return;
+                              setEditingPolo({
+                                ...editingPolo,
+                                rules: [
+                                  ...(editingPolo.rules || []),
+                                  newPoloRule.trim(),
+                                ],
+                              });
+                              setNewPoloRule('');
+                            }}
+                            className="px-3 py-2 bg-[#0a1e36] text-white font-bold rounded-lg cursor-pointer"
+                          >
+                            + Regra
+                          </button>
+                        </div>
+                        <div className="space-y-1">
+                          {(editingPolo.rules || []).map((rule: string, idx: number) => (
+                            <div
+                              key={idx}
+                              className="flex items-center justify-between gap-2 p-2 bg-white border border-slate-200 rounded-lg"
+                            >
+                              <span>{rule}</span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setEditingPolo({
+                                    ...editingPolo,
+                                    rules: (editingPolo.rules || []).filter(
+                                      (_: string, i: number) => i !== idx
+                                    ),
+                                  })
+                                }
+                                className="text-slate-400 hover:text-rose-600 font-bold cursor-pointer"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="flex justify-end gap-2 pt-3 border-t">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsCreatingPolo(false);
+                            setEditingPolo(null);
+                          }}
+                          className="px-4 py-2 bg-slate-200 text-slate-700 font-bold rounded-lg cursor-pointer"
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleSaveAllAdminChanges('Polo esportivo salvo com sucesso!')
+                          }
+                          className="px-6 py-2 bg-[#0284c7] hover:bg-[#0369a1] text-white font-bold rounded-lg cursor-pointer flex items-center gap-1.5"
+                        >
+                          <Save className="w-3.5 h-3.5" />
+                          <span>Salvar Polo</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* ========================================================================= */}
+          {/* TAB OLHEIROS & CAPTAÇÃO (SCOUT INQUIRIES + ATHLETE SHOWCASE OVERVIEW) */}
+          {/* ========================================================================= */}
+          {activeTab === 'olheiros' && (() => {
+            const filteredScoutInquiries = draftScoutInquiries.filter((inq) => {
+              const matchStatus = scoutInqFilter === 'all' || inq.status === scoutInqFilter;
+              const q = scoutInqSearch.trim().toLowerCase();
+              const matchSearch =
+                !q ||
+                (inq.targetPlayerName || '').toLowerCase().includes(q) ||
+                (inq.scoutName || '').toLowerCase().includes(q) ||
+                (inq.organization || '').toLowerCase().includes(q) ||
+                (inq.protocol || '').toLowerCase().includes(q);
+              return matchStatus && matchSearch;
+            });
+
+            const allRegisteredAthletes = draftProjects.flatMap((proj) =>
+              (proj.participants || []).map((ath) => ({
+                ...ath,
+                projectId: proj.id,
+                projectName: proj.name,
+              }))
+            );
+
+            const inquiryTypeLabels: Record<ScoutInquiryRecord['inquiryType'], string> = {
+              avaliacao_clube: 'Convite para Avaliação Técnica',
+              visita_treino: 'Visita Presencial em Treino',
+              relatorio_atleta: 'Solicitação de Ficha Técnica',
+              parceria_base: 'Intercâmbio / Parceria de Base',
+            };
+
+            const scoutStatusLabels: Record<ScoutInquiryRecord['status'], string> = {
+              nova: 'Nova Sondagem',
+              em_analise: 'Em Análise',
+              agendada: 'Visita Agendada',
+              concluida: 'Concluída',
+            };
+
+            return (
+              <div className="space-y-6">
+                <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600">
+                      Vitrine Esportiva & Intercâmbio de Base
+                    </span>
+                    <h2 className="text-xl font-black text-[#0a1e36] uppercase mt-0.5">
+                      Central de Captação, Olheiros & Sondagens ({draftScoutInquiries.length})
+                    </h2>
+                    <p className="text-xs text-slate-600 mt-0.5">
+                      Gerencie todos os pedidos de relatórios técnicos, convites para avaliação e visitas técnicas enviados por clubes e observadores credenciados.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsCreatingScoutInq(true);
+                        setEditingScoutInq({
+                          id: '',
+                          protocol: `SCT-2026-${Math.floor(1000 + Math.random() * 9000)}`,
+                          targetPlayerName: allRegisteredAthletes[0]?.name || '',
+                          targetCategory: allRegisteredAthletes[0]?.category || 'Sub-15',
+                          projectName:
+                            allRegisteredAthletes[0]?.projectName ||
+                            'Iniciação Esportiva & Cidadania (Futsal e Vôlei)',
+                          scoutName: '',
+                          organization: '',
+                          role: 'Observador Técnico',
+                          phone: '',
+                          email: '',
+                          inquiryType: 'avaliacao_clube',
+                          preferredDate: '',
+                          message: '',
+                          createdAt: new Date().toLocaleDateString('pt-BR'),
+                          status: 'nova',
+                        });
+                      }}
+                      className="px-4 py-2 bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-bold uppercase rounded-xl cursor-pointer flex items-center gap-1.5"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>+ Registrar Sondagem</span>
+                    </button>
+
+                    {draftScoutInquiries.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const header =
+                            'Protocolo,Atleta,Categoria,Projeto,Avaliador,Clube,Modalidade,Telefone,Email,Data,Status\n';
+                          const rows = draftScoutInquiries
+                            .map(
+                              (s) =>
+                                `"${s.protocol || ''}","${s.targetPlayerName || ''}","${s.targetCategory || ''}","${s.projectName || ''}","${s.scoutName || ''}","${s.organization || ''}","${s.inquiryType || ''}","${s.phone || ''}","${s.email || ''}","${s.createdAt || ''}","${s.status || ''}"`
+                            )
+                            .join('\n');
+                          const blob = new Blob([header + rows], {
+                            type: 'text/csv;charset=utf-8;',
+                          });
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = `captacao-olheiros-vitalizar-${new Date().toISOString().slice(0, 10)}.csv`;
+                          a.click();
+                          URL.revokeObjectURL(url);
+                          showToast('Relatório CSV de captação exportado!');
+                        }}
+                        className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold uppercase rounded-xl cursor-pointer flex items-center gap-1.5"
+                      >
+                        <FileSpreadsheet className="w-4 h-4" />
+                        <span>Exportar CSV</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Search & Status Filter */}
+                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row gap-3 items-center justify-between">
+                  <div className="relative w-full sm:w-80">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={scoutInqSearch}
+                      onChange={(e) => setScoutInqSearch(e.target.value)}
+                      placeholder="Buscar por atleta, clube, olheiro ou protocolo..."
+                      className="w-full text-xs pl-9 pr-4 py-2 bg-slate-50 border border-slate-300 rounded-xl"
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-bold">
+                    {(
+                      [
+                        { id: 'all', label: `Todos (${draftScoutInquiries.length})` },
+                        { id: 'nova', label: 'Novas' },
+                        { id: 'em_analise', label: 'Em Análise' },
+                        { id: 'agendada', label: 'Agendadas' },
+                        { id: 'concluida', label: 'Concluídas' },
+                      ] as const
+                    ).map((st) => (
+                      <button
+                        key={st.id}
+                        type="button"
+                        onClick={() => setScoutInqFilter(st.id)}
+                        className={`px-3 py-1 rounded-lg cursor-pointer transition-colors ${
+                          scoutInqFilter === st.id
+                            ? 'bg-[#0a1e36] text-white'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        {st.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Inquiries List */}
+                {filteredScoutInquiries.length === 0 ? (
+                  <div className="bg-white p-10 rounded-2xl border border-slate-200 text-center space-y-2 text-xs text-slate-500">
+                    <Trophy className="w-8 h-8 text-slate-300 mx-auto" />
+                    <p className="font-bold text-slate-700">
+                      Nenhuma sondagem de olheiro ou pedido de ficha técnica registrado neste filtro.
+                    </p>
+                    <p>
+                      Quando observadores clicam em &ldquo;Solicitar Contato / Avaliação&rdquo; no perfil de um atleta dos projetos, o registro aparece aqui automaticamente.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {filteredScoutInquiries.map((inq) => {
+                      const cleanPhone = (inq.phone || '').replace(/\D/g, '');
+                      const whatsappUrl =
+                        cleanPhone.length >= 10
+                          ? `https://wa.me/55${cleanPhone}?text=${encodeURIComponent(
+                              `Olá ${inq.scoutName} (${inq.organization}), aqui é da Coordenação de Base da Associação Esportiva Vitalizar referente ao protocolo ${inq.protocol} do atleta ${inq.targetPlayerName || inq.targetCategory}.`
+                            )}`
+                          : null;
+
+                      return (
+                        <div
+                          key={inq.id}
+                          className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3 text-xs"
+                        >
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-mono font-black text-[11px] bg-slate-100 px-2.5 py-0.5 rounded border border-slate-300 text-[#0a1e36]">
+                                {inq.protocol}
+                              </span>
+                              <span
+                                className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                                  inq.status === 'nova'
+                                    ? 'bg-sky-100 text-[#0284c7] border border-sky-300'
+                                    : inq.status === 'agendada'
+                                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                    : inq.status === 'em_analise'
+                                    ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                                    : 'bg-slate-100 text-slate-700 border border-slate-300'
+                                }`}
+                              >
+                                {scoutStatusLabels[inq.status] || inq.status}
+                              </span>
+                              <span className="font-black text-sm text-[#0a1e36]">
+                                Atleta: {inq.targetPlayerName || 'Elenco Geral'}
+                              </span>
+                              <span className="text-slate-500 font-semibold">
+                                ({inq.targetCategory} • {inq.projectName})
+                              </span>
+                            </div>
+                            <span className="text-[11px] text-slate-400">{inq.createdAt}</span>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                            <div>
+                              <span className="text-[10px] font-bold uppercase text-slate-400 block">
+                                Observador / Avaliador
+                              </span>
+                              <span className="font-bold text-slate-800">{inq.scoutName}</span>
+                              <span className="block text-slate-600">{inq.organization}</span>
+                            </div>
+                            <div>
+                              <span className="text-[10px] font-bold uppercase text-slate-400 block">
+                                Modalidade da Solicitação
+                              </span>
+                              <span className="font-bold text-[#0284c7]">
+                                {inquiryTypeLabels[inq.inquiryType] || inq.inquiryType}
+                              </span>
+                              {inq.preferredDate && (
+                                <span className="block text-slate-600">
+                                  Previsão: {inq.preferredDate}
+                                </span>
+                              )}
+                            </div>
+                            <div>
+                              <span className="text-[10px] font-bold uppercase text-slate-400 block">
+                                Contatos Diretos
+                              </span>
+                              <span className="font-semibold text-slate-800 block">
+                                Tel: {inq.phone}
+                              </span>
+                              <span className="text-slate-600 block truncate">{inq.email}</span>
+                            </div>
+                          </div>
+
+                          {inq.message && (
+                            <p className="text-slate-600 italic bg-amber-50/50 p-2.5 rounded-lg border border-amber-200/70">
+                              &ldquo;{inq.message}&rdquo;
+                            </p>
+                          )}
+
+                          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[11px] font-bold text-slate-500">Status:</span>
+                              <select
+                                value={inq.status}
+                                onChange={(e) => {
+                                  const nextSt = e.target.value as ScoutInquiryRecord['status'];
+                                  setDraftScoutInquiries((prev) =>
+                                    prev.map((item) =>
+                                      item.id === inq.id ? { ...item, status: nextSt } : item
+                                    )
+                                  );
+                                }}
+                                className="p-1.5 bg-slate-50 border border-slate-300 rounded-lg font-bold text-xs"
+                              >
+                                <option value="nova">Nova Sondagem</option>
+                                <option value="em_analise">Em Análise</option>
+                                <option value="agendada">Visita Agendada</option>
+                                <option value="concluida">Concluída</option>
+                              </select>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              {whatsappUrl && (
+                                <a
+                                  href={whatsappUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg transition-colors"
+                                >
+                                  Contatar WhatsApp
+                                </a>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setIsCreatingScoutInq(false);
+                                  setEditingScoutInq({ ...inq });
+                                }}
+                                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg cursor-pointer flex items-center gap-1"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                                <span>Editar</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setDraftScoutInquiries((prev) =>
+                                    prev.filter((item) => item.id !== inq.id)
+                                  )
+                                }
+                                className="p-1.5 bg-slate-100 hover:bg-rose-100 text-rose-600 rounded-lg cursor-pointer"
+                                title="Excluir registro"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Overview of All Registered Athletes across Projects */}
+                <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                    <div>
+                      <h3 className="font-black text-sm text-[#0a1e36] uppercase">
+                        Atletas & Educandos na Vitrine Oficial ({allRegisteredAthletes.length})
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        Para adicionar ou remover atletas de um projeto específico, clique em &ldquo;Gerenciar Projetos & Elencos&rdquo;.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('projetos')}
+                      className="px-3.5 py-1.5 bg-[#0a1e36] hover:bg-[#0284c7] text-white text-xs font-bold rounded-xl cursor-pointer self-start sm:self-auto"
+                    >
+                      Gerenciar Projetos & Elencos
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {allRegisteredAthletes.map((ath, idx) => (
+                      <div
+                        key={ath.id || idx}
+                        className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between gap-3 text-xs"
+                      >
+                        <div className="min-w-0">
+                          <span className="text-[10px] font-bold text-[#0284c7] uppercase block truncate">
+                            {ath.projectName}
+                          </span>
+                          <span className="font-black text-slate-900 block truncate">
+                            {ath.name} ({ath.age} anos)
+                          </span>
+                          <span className="text-[11px] text-slate-600 block truncate">
+                            {ath.position} • {(ath.highlights && ath.highlights[0]) || ath.category}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const proj = draftProjects.find((p) => p.id === ath.projectId);
+                            if (proj) {
+                              setActiveTab('projetos');
+                              setIsCreatingProject(false);
+                              setEditingProject({
+                                ...proj,
+                                attachments: proj.attachments || [],
+                                staff: proj.staff || [],
+                                participants: proj.participants || [],
+                              });
+                            }
+                          }}
+                          className="px-2.5 py-1.5 bg-white hover:bg-sky-50 text-[#0284c7] border border-slate-200 rounded-lg font-bold shrink-0 cursor-pointer"
+                        >
+                          Ficha
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Modal: Create / Edit Scout Inquiry */}
+                {(isCreatingScoutInq || editingScoutInq) && editingScoutInq && (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
+                    <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4 text-xs">
+                      <div className="flex items-center justify-between border-b pb-3">
+                        <h3 className="font-black text-sm text-[#0a1e36] uppercase">
+                          {isCreatingScoutInq
+                            ? 'Registrar Nova Sondagem / Olheiro'
+                            : `Editar Sondagem: ${editingScoutInq.protocol}`}
+                        </h3>
+                        <button
+                          onClick={() => {
+                            setIsCreatingScoutInq(false);
+                            setEditingScoutInq(null);
+                          }}
+                          className="text-slate-400 hover:text-slate-600"
+                        >
+                          ✕
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block font-bold text-slate-700 uppercase mb-1">
+                            Nome do Atleta *
+                          </label>
+                          <input
+                            type="text"
+                            value={editingScoutInq.targetPlayerName || ''}
+                            onChange={(e) =>
+                              setEditingScoutInq({
+                                ...editingScoutInq,
+                                targetPlayerName: e.target.value,
+                              })
+                            }
+                            className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg font-bold"
+                          />
+                        </div>
+                        <div>
+                          <label className="block font-bold text-slate-700 uppercase mb-1">
+                            Categoria (ex: Sub-15)
+                          </label>
+                          <input
+                            type="text"
+                            value={editingScoutInq.targetCategory}
+                            onChange={(e) =>
+                              setEditingScoutInq({
+                                ...editingScoutInq,
+                                targetCategory: e.target.value,
+                              })
+                            }
+                            className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block font-bold text-slate-700 uppercase mb-1">
+                            Nome do Olheiro / Avaliador *
+                          </label>
+                          <input
+                            type="text"
+                            value={editingScoutInq.scoutName}
+                            onChange={(e) =>
+                              setEditingScoutInq({
+                                ...editingScoutInq,
+                                scoutName: e.target.value,
+                              })
+                            }
+                            className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg"
+                          />
+                        </div>
+                        <div>
+                          <label className="block font-bold text-slate-700 uppercase mb-1">
+                            Clube / Entidade *
+                          </label>
+                          <input
+                            type="text"
+                            value={editingScoutInq.organization}
+                            onChange={(e) =>
+                              setEditingScoutInq({
+                                ...editingScoutInq,
+                                organization: e.target.value,
+                              })
+                            }
+                            className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block font-bold text-slate-700 uppercase mb-1">
+                            WhatsApp / Telefone *
+                          </label>
+                          <input
+                            type="text"
+                            value={editingScoutInq.phone}
+                            onChange={(e) =>
+                              setEditingScoutInq({ ...editingScoutInq, phone: e.target.value })
+                            }
+                            className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg"
+                          />
+                        </div>
+                        <div>
+                          <label className="block font-bold text-slate-700 uppercase mb-1">
+                            Status do Atendimento
+                          </label>
+                          <select
+                            value={editingScoutInq.status}
+                            onChange={(e) =>
+                              setEditingScoutInq({
+                                ...editingScoutInq,
+                                status: e.target.value as ScoutInquiryRecord['status'],
+                              })
+                            }
+                            className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg font-bold"
+                          >
+                            <option value="nova">Nova Sondagem</option>
+                            <option value="em_analise">Em Análise</option>
+                            <option value="agendada">Visita Agendada</option>
+                            <option value="concluida">Concluída</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block font-bold text-slate-700 uppercase mb-1">
+                          Observações / Mensagem da Sondagem
+                        </label>
+                        <textarea
+                          rows={3}
+                          value={editingScoutInq.message}
+                          onChange={(e) =>
+                            setEditingScoutInq({ ...editingScoutInq, message: e.target.value })
+                          }
+                          className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg"
+                        />
+                      </div>
+
+                      <div className="flex justify-end gap-2 pt-3 border-t">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsCreatingScoutInq(false);
+                            setEditingScoutInq(null);
+                          }}
+                          className="px-4 py-2 bg-slate-200 text-slate-700 font-bold rounded-lg cursor-pointer"
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleSaveAllAdminChanges('Sondagem de olheiro salva com sucesso!')
+                          }
+                          className="px-6 py-2 bg-[#0284c7] hover:bg-[#0369a1] text-white font-bold rounded-lg cursor-pointer"
+                        >
+                          Confirmar e Salvar
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* ========================================================================= */}
           {/* TAB 10: SEGURANÇA & SENHA (WITH VALIDATION & SHOW/HIDE TOGGLES) */}
           {/* ========================================================================= */}
           {activeTab === 'seguranca' && (() => {
+            const pwdStrength = validatePasswordStrength(draftCreds.passwordHashOrPlain);
             const pinValid = /^\d{6}$/.test(draftCreds.securityPin.trim());
 
             return (
@@ -6645,7 +8484,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                     Credenciais Administrativas & PIN
                   </h2>
                   <p className="text-xs text-slate-600 mt-1">
-                    Atualize o e-mail do administrador ou o PIN de segurança para ações críticas. A senha de acesso é a da sua conta Firebase/Google. As alterações só serão efetivadas ao clicar em Salvar.
+                    Atualize o e-mail de acesso, senha mestre ou o PIN de segurança para ações críticas. As alterações só serão efetivadas ao clicar em Salvar.
                   </p>
                 </div>
 
@@ -6657,13 +8496,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   className="space-y-4"
                 >
                   <div>
-                    <label htmlFor={`${fid}-f75`} className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
                       E-mail do Administrador *
                     </label>
-                    <input id={`${fid}-f75`}
+                    <input
                       type="email"
-                      autoComplete="email"
-                      spellCheck={false}
                       required
                       value={draftCreds.email}
                       onChange={(e) => setDraftCreds({ ...draftCreds, email: e.target.value })}
@@ -6672,18 +8509,48 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                   </div>
 
                   <div>
-                    <label htmlFor={`${fid}-security-pin`} className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                      Senha do Administrador *
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showAdminNewPassword ? 'text' : 'password'}
+                        value={draftCreds.passwordHashOrPlain}
+                        onChange={(e) =>
+                          setDraftCreds({ ...draftCreds, passwordHashOrPlain: e.target.value })
+                        }
+                        className="w-full text-xs p-2.5 pr-10 bg-slate-50 border border-slate-300 rounded-lg font-mono"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowAdminNewPassword(!showAdminNewPassword)}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 p-1 cursor-pointer"
+                      >
+                        {showAdminNewPassword ? (
+                          <EyeOff className="w-4 h-4" />
+                        ) : (
+                          <Eye className="w-4 h-4" />
+                        )}
+                      </button>
+                    </div>
+                    <span
+                      className={`text-[11px] mt-1 block font-medium ${
+                        pwdStrength.valid ? 'text-emerald-600' : 'text-amber-700'
+                      }`}
+                    >
+                      {pwdStrength.valid
+                        ? '✓ Senha forte (atende aos requisitos de letras e números).'
+                        : pwdStrength.reason}
+                    </span>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
                       PIN de Segurança (6 dígitos numéricos para exclusões críticas) *
                     </label>
                     <div className="relative w-52">
                       <input
-                        id={`${fid}-security-pin`}
                         type={showAdminPin ? 'text' : 'password'}
-                        inputMode="numeric"
-                        autoComplete="off"
-                        pattern="\d{6}"
-                        aria-invalid={!pinValid}
-                        aria-describedby={!pinValid ? `${fid}-security-pin-error` : undefined}
                         maxLength={6}
                         value={draftCreds.securityPin}
                         onChange={(e) =>
@@ -6697,8 +8564,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                       <button
                         type="button"
                         onClick={() => setShowAdminPin(!showAdminPin)}
-                        aria-label={showAdminPin ? 'Ocultar PIN' : 'Exibir PIN'}
-                        aria-pressed={showAdminPin}
                         className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 p-1 cursor-pointer"
                       >
                         {showAdminPin ? (
@@ -6709,7 +8574,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                       </button>
                     </div>
                     {!pinValid && (
-                      <span id={`${fid}-security-pin-error`} className="text-[11px] text-amber-700 mt-1 block">
+                      <span className="text-[11px] text-amber-700 mt-1 block">
                         O PIN deve conter exatamente 6 números.
                       </span>
                     )}
@@ -6739,27 +8604,72 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
           })()}
 
           {/* ========================================================================= */}
-          {/* TAB 11: BACKUP & RESTAURAÇÃO (WITH STORAGE METER) */}
+          {/* TAB 10B: CHAVE PIX (CNPJ), RESULTADOS DA BASE, TROFÉUS & VOLUNTARIADO */}
+          {/* ========================================================================= */}
+          {activeTab === 'comunidade_pix' && (
+            <AdminCommunityModules
+              draftSettings={draftSiteSettings}
+              onUpdateDraftSettings={setDraftSiteSettings}
+              onSaveSettingsImmediately={(updatedSettings, logMsg, toastMsg) => {
+                setDraftSiteSettings(updatedSettings);
+                saveAdminChanges({
+                  siteSettings: updatedSettings,
+                  logDetails: logMsg,
+                  toastMessage: toastMsg,
+                });
+              }}
+              onNotify={showToast}
+            />
+          )}
+
+          {/* ========================================================================= */}
+          {/* TAB 11: IMPORTAÇÃO DE DADOS (NEXT FIT CSV, GITHUB) & BACKUP */}
           {/* ========================================================================= */}
           {activeTab === 'backup' && (() => {
-            const estimatedBytes = backupEstimatedBytes;
+            const estimatedBytes = new Blob([exportDatabaseJson()]).size;
             const maxStorageBytes = 5 * 1024 * 1024; // ~5MB browser localStorage quota
             const usagePercent = Math.min(100, Math.round((estimatedBytes / maxStorageBytes) * 100));
 
             return (
-              <div className="bg-white p-6 sm:p-8 rounded-2xl border border-slate-200 shadow-xs space-y-6 max-w-3xl">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div>
-                    <span className="text-xs font-bold text-[#0284c7] uppercase tracking-wider">
-                      Preservação de Dados
-                    </span>
-                    <h2 className="text-xl font-black text-[#0a1e36] uppercase mt-0.5">
-                      Backup Completo, Restauração & Redefinição
-                    </h2>
-                    <p className="text-xs text-slate-600 mt-1">
-                      Exporte cópias de segurança de todo o banco de dados do site (incluindo arquivos, inscrições e álbuns), importe backups ou restaure os padrões.
-                    </p>
-                  </div>
+              <div className="space-y-6">
+                {/* 0. Next Fit CSV Importer & Athlete Roster Sync */}
+                <NextFitParticipantsManager
+                  mode="import_hub"
+                  projects={draftProjects}
+                  onUpdateProjects={(updatedProjects, toastMsg, persistImmediately) => {
+                    setDraftProjects(updatedProjects);
+                    if (persistImmediately) {
+                      saveAdminChanges({
+                        projects: updatedProjects,
+                        toastMessage: toastMsg,
+                        logDetails:
+                          toastMsg ||
+                          'Relação de atletas Next Fit importada via .CSV na aba de Importação de Dados.',
+                      });
+                    } else if (toastMsg) {
+                      showToast(toastMsg, 'info');
+                    }
+                  }}
+                  onNavigateToProjectsParticipants={() => {
+                    setActiveTab('projetos');
+                    setProjectsSubTab('participantes');
+                  }}
+                  onNotify={showToast}
+                />
+
+                <div className="bg-white p-6 sm:p-8 rounded-2xl border border-slate-200 shadow-xs space-y-6">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <span className="text-xs font-bold text-[#0284c7] uppercase tracking-wider">
+                        Preservação de Dados & Sistema
+                      </span>
+                      <h2 className="text-xl font-black text-[#0a1e36] uppercase mt-0.5">
+                        Backup Completo JSON, GitHub & Restauração
+                      </h2>
+                      <p className="text-xs text-slate-600 mt-1">
+                        Exporte cópias de segurança de todo o banco de dados do site (incluindo arquivos, participantes, inscrições e álbuns), importe backups ou restaure os padrões.
+                      </p>
+                    </div>
 
                   <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs shrink-0 min-w-[200px]">
                     <div className="flex items-center justify-between font-bold text-slate-700 mb-1">
@@ -6781,17 +8691,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                 </div>
 
                 {importJsonError && (
-                  <div
-                    aria-live="polite"
-                    className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl flex items-center justify-between text-xs text-rose-800"
-                  >
+                  <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl flex items-center justify-between text-xs text-rose-800">
                     <div className="flex items-center gap-2">
                       <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0" />
                       <span>{importJsonError}</span>
                     </div>
                     <button
-                      type="button"
-                      aria-label="Fechar"
                       onClick={() => setImportJsonError(null)}
                       className="text-rose-500 hover:text-rose-800 text-xs font-bold"
                     >
@@ -6820,6 +8725,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                         a.download = `vitalizar-backup-${new Date().toISOString().slice(0, 10)}.json`;
                         a.click();
                         URL.revokeObjectURL(url);
+                        addAuditLog('BACKUP_EXPORTADO', 'Backup completo do site Vitalizar foi exportado.');
                         showToast('Backup baixado com sucesso!');
                       }}
                       className="w-full py-2 bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-bold uppercase rounded-lg transition-colors cursor-pointer text-center"
@@ -6838,24 +8744,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                       </p>
                     </div>
                     <div>
-                      <label className="w-full py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold uppercase rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1.5 text-center focus-within:ring-2 focus-within:ring-emerald-500 focus-within:ring-offset-1">
+                      <label className="w-full py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold uppercase rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1.5 text-center">
                         <Upload className="w-3.5 h-3.5" />
                         <span>Selecionar JSON</span>
                         <input
                           type="file"
                           accept=".json"
-                          className="sr-only"
+                          className="hidden"
                           onChange={(e) => {
                             const file = e.target.files?.[0];
                             if (!file) return;
-                            if (
-                              !window.confirm(
-                                `Restaurar o backup "${file.name}"? Todos os dados atuais do site serão substituídos pelos do arquivo.`
-                              )
-                            ) {
-                              e.target.value = '';
-                              return;
-                            }
                             const reader = new FileReader();
                             reader.onload = (event) => {
                               const content = event.target?.result as string;
@@ -6898,6 +8796,455 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                     </button>
                   </div>
                 </div>
+
+                {/* 4. GitHub Repository & Raw File Importer */}
+                <div className="p-6 bg-slate-50 border border-slate-200 rounded-2xl space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <span className="text-[10px] font-black uppercase tracking-widest text-[#0284c7]">
+                        Integração GitHub API
+                      </span>
+                      <h3 className="text-base font-black text-[#0a1e36] uppercase">
+                        Importar Arquivos Diretamente do GitHub
+                      </h3>
+                      <p className="text-xs text-slate-600 mt-0.5">
+                        Informe o repositório (ex: <code className="bg-white px-1.5 py-0.5 rounded border border-slate-200">usuario/repositorio</code> ou URL completa do GitHub) para listar e importar backups JSON, documentos PDF para a Transparência ou fotos para a Galeria.
+                      </p>
+                    </div>
+                  </div>
+
+                  {githubError && (
+                    <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-center justify-between text-xs text-rose-800">
+                      <div className="flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                        <span>{githubError}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setGithubError(null)}
+                        className="text-rose-500 hover:text-rose-800 font-bold cursor-pointer"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                    <div className="sm:col-span-6">
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                        Repositório ou URL do GitHub *
+                      </label>
+                      <input
+                        type="text"
+                        value={githubRepoUrl}
+                        onChange={(e) => setGithubRepoUrl(e.target.value)}
+                        placeholder="Ex: https://github.com/usuario/vitalizar ou usuario/repo"
+                        className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:border-[#0284c7]"
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                        Branch
+                      </label>
+                      <input
+                        type="text"
+                        value={githubBranch}
+                        onChange={(e) => setGithubBranch(e.target.value)}
+                        placeholder="main"
+                        className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:border-[#0284c7]"
+                      />
+                    </div>
+                    <div className="sm:col-span-4">
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                        Pasta / Caminho (opcional)
+                      </label>
+                      <input
+                        type="text"
+                        value={githubPath}
+                        onChange={(e) => setGithubPath(e.target.value)}
+                        placeholder="Ex: public ou src/data"
+                        className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:border-[#0284c7]"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
+                    <div className="flex-1">
+                      <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                        Token de Acesso GitHub (Opcional — apenas para repositórios privados)
+                      </label>
+                      <input
+                        type="password"
+                        value={githubToken}
+                        onChange={(e) => setGithubToken(e.target.value)}
+                        placeholder="ghp_..."
+                        className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-[#0284c7]"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      disabled={githubLoading}
+                      onClick={async () => {
+                        const rawInput = githubRepoUrl.trim();
+                        if (!rawInput) {
+                          setGithubError('Informe a URL do repositório ou arquivo no GitHub.');
+                          return;
+                        }
+                        setGithubLoading(true);
+                        setGithubError(null);
+                        try {
+                          const headers: Record<string, string> = {
+                            Accept: 'application/vnd.github.v3+json',
+                          };
+                          if (githubToken.trim()) {
+                            headers.Authorization = `Bearer ${githubToken.trim()}`;
+                          }
+
+                          // Direct raw file URL support
+                          if (
+                            rawInput.includes('raw.githubusercontent.com') ||
+                            rawInput.endsWith('.json')
+                          ) {
+                            const rawUrl = rawInput
+                              .replace('https://github.com/', 'https://raw.githubusercontent.com/')
+                              .replace('/blob/', '/');
+                            const res = await fetch(rawUrl);
+                            if (!res.ok) {
+                              throw new Error(`Não foi possível baixar o arquivo (${res.status}).`);
+                            }
+                            const text = await res.text();
+                            const result = importDatabaseJson(text);
+                            if (result.success) {
+                              showToast('Backup JSON importado diretamente do GitHub!', 'success');
+                            } else {
+                              setGithubError(result.message);
+                            }
+                            setGithubLoading(false);
+                            return;
+                          }
+
+                          // Parse owner/repo from URL or shorthand
+                          let cleaned = rawInput
+                            .replace(/^https?:\/\/(www\.)?github\.com\//i, '')
+                            .replace(/\.git$/i, '')
+                            .replace(/^\/+|\/+$/g, '');
+
+                          const parts = cleaned.split('/');
+                          if (parts.length < 2) {
+                            throw new Error(
+                              'Formato inválido. Use "usuario/repositorio" ou a URL completa do GitHub.'
+                            );
+                          }
+                          const owner = parts[0];
+                          const repo = parts[1];
+                          let effectiveBranch = githubBranch.trim() || 'main';
+                          let effectivePath = githubPath.trim().replace(/^\/+|\/+$/g, '');
+
+                          if (parts[2] === 'tree' || parts[2] === 'blob') {
+                            if (parts[3]) effectiveBranch = parts[3];
+                            if (parts.length > 4) {
+                              effectivePath = parts.slice(4).join('/');
+                            }
+                          }
+
+                          const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${effectivePath}${
+                            effectiveBranch ? `?ref=${encodeURIComponent(effectiveBranch)}` : ''
+                          }`;
+                          let response = await fetch(apiUrl, { headers });
+
+                          // Fallback to master if main fails with 404
+                          if (response.status === 404 && effectiveBranch === 'main') {
+                            const fallbackUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${effectivePath}?ref=master`;
+                            const fallbackRes = await fetch(fallbackUrl, { headers });
+                            if (fallbackRes.ok) {
+                              response = fallbackRes;
+                              setGithubBranch('master');
+                            }
+                          }
+
+                          if (!response.ok) {
+                            throw new Error(
+                              `Repositório ou caminho não encontrado no GitHub (Status ${response.status}). Verifique se o repositório é público.`
+                            );
+                          }
+
+                          const data = await response.json();
+                          const items = Array.isArray(data) ? data : [data];
+                          setGithubItems(
+                            items.map((item: any) => ({
+                              name: item.name,
+                              path: item.path,
+                              type: item.type === 'dir' ? 'dir' : 'file',
+                              size: item.size || 0,
+                              download_url: item.download_url || null,
+                              html_url: item.html_url || '',
+                            }))
+                          );
+                          setGithubPath(effectivePath);
+                          showToast(`${items.length} arquivo(s)/pasta(s) carregados do GitHub!`, 'info');
+                        } catch (err: any) {
+                          setGithubError(err?.message || 'Erro ao consultar a API do GitHub.');
+                        } finally {
+                          setGithubLoading(false);
+                        }
+                      }}
+                      className="px-4 py-2 bg-[#0a1e36] hover:bg-[#0284c7] disabled:opacity-50 text-white text-xs font-bold uppercase rounded-lg transition-colors cursor-pointer flex items-center gap-2 shrink-0"
+                    >
+                      <Search className="w-3.5 h-3.5" />
+                      <span>{githubLoading ? 'Buscando...' : 'Listar Arquivos do GitHub'}</span>
+                    </button>
+                  </div>
+
+                  {githubItems.length > 0 && (
+                    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+                      <div className="px-4 py-2.5 bg-slate-100 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 text-xs font-bold text-slate-700">
+                          <span>
+                            Caminho: <code className="text-[#0284c7]">/{githubPath || ''}</code>
+                          </span>
+                          {githubPath && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const parent = githubPath.split('/').slice(0, -1).join('/');
+                                setGithubPath(parent);
+                              }}
+                              className="px-2 py-0.5 bg-white border border-slate-300 rounded text-[10px] hover:bg-slate-50 cursor-pointer"
+                            >
+                              ↑ Voltar Pasta
+                            </button>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            let importedDocsCount = 0;
+                            let importedImagesCount = 0;
+                            let importedBackup = false;
+                            const newDocs = [...draftDocs];
+                            const newImages: { url: string; caption: string }[] = [];
+
+                            for (const item of githubItems) {
+                              if (item.type !== 'file' || !item.download_url) continue;
+                              const lower = item.name.toLowerCase();
+                              if (lower.endsWith('.json') && lower.includes('backup')) {
+                                try {
+                                  const res = await fetch(item.download_url);
+                                  if (res.ok) {
+                                    const text = await res.text();
+                                    const result = importDatabaseJson(text);
+                                    if (result.success) importedBackup = true;
+                                  }
+                                } catch {
+                                  // ignore single file failure
+                                }
+                              } else if (
+                                lower.endsWith('.pdf') ||
+                                lower.endsWith('.doc') ||
+                                lower.endsWith('.docx') ||
+                                lower.endsWith('.xlsx') ||
+                                lower.endsWith('.csv')
+                              ) {
+                                const ext = lower.split('.').pop()?.toUpperCase() || 'DOC';
+                                newDocs.unshift({
+                                  id: `gh-doc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                                  title: item.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' '),
+                                  category: 'governanca',
+                                  date: new Date().toLocaleDateString('pt-BR'),
+                                  description: `Arquivo importado do GitHub (${item.path})`,
+                                  fileType: `${ext} • ${formatFileSize(item.size || 1024)}`,
+                                  badge: 'GitHub',
+                                  downloadUrl: item.download_url,
+                                  fileName: item.name,
+                                  fileSize: formatFileSize(item.size || 1024),
+                                });
+                                importedDocsCount++;
+                              } else if (
+                                lower.endsWith('.png') ||
+                                lower.endsWith('.jpg') ||
+                                lower.endsWith('.jpeg') ||
+                                lower.endsWith('.webp')
+                              ) {
+                                newImages.push({
+                                  url: item.download_url,
+                                  caption: item.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' '),
+                                });
+                                importedImagesCount++;
+                              }
+                            }
+
+                            if (importedDocsCount > 0) {
+                              setDraftDocs(newDocs);
+                              saveAdminChanges({ transparencyDocs: newDocs });
+                            }
+                            if (importedImagesCount > 0) {
+                              const newAlbum = {
+                                id: `gh-album-${Date.now()}`,
+                                title: `Importação GitHub (${githubPath || 'Raiz'})`,
+                                category: 'Festivais Esportivos',
+                                date: new Date().toLocaleDateString('pt-BR'),
+                                location: 'Cariacica - ES',
+                                coverUrl: newImages[0].url,
+                                caption: `Álbum com ${importedImagesCount} imagem(ns) importadas diretamente do GitHub.`,
+                                albumPhotos: newImages,
+                              };
+                              const updatedAlbums = [newAlbum, ...draftAlbums];
+                              setDraftAlbums(updatedAlbums);
+                              saveAdminChanges({ galleryAlbums: updatedAlbums });
+                            }
+
+                            if (importedBackup || importedDocsCount > 0 || importedImagesCount > 0) {
+                              showToast(
+                                `Importação concluída: ${importedDocsCount} documento(s), ${importedImagesCount} imagem(ns)${
+                                  importedBackup ? ' e backup JSON restaurado' : ''
+                                }!`,
+                                'success'
+                              );
+                            } else {
+                              showToast(
+                                'Nenhum arquivo PDF, imagem ou backup JSON encontrado nesta pasta para importação em lote.',
+                                'info'
+                              );
+                            }
+                          }}
+                          className="px-3 py-1 bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] font-bold rounded-lg cursor-pointer transition-colors"
+                        >
+                          Importar Todos Desta Pasta
+                        </button>
+                      </div>
+
+                      <div className="divide-y divide-slate-100 max-h-72 overflow-y-auto">
+                        {githubItems.map((item) => {
+                          const lower = item.name.toLowerCase();
+                          const isJson = lower.endsWith('.json');
+                          const isImage =
+                            lower.endsWith('.png') ||
+                            lower.endsWith('.jpg') ||
+                            lower.endsWith('.jpeg') ||
+                            lower.endsWith('.webp') ||
+                            lower.endsWith('.svg');
+
+                          return (
+                            <div
+                              key={item.path}
+                              className="px-4 py-2.5 flex items-center justify-between gap-3 hover:bg-slate-50 text-xs"
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <FileText className="w-4 h-4 text-slate-400 shrink-0" />
+                                <div className="truncate">
+                                  <span className="font-semibold text-slate-800 block truncate">
+                                    {item.name}
+                                  </span>
+                                  <span className="text-[10px] text-slate-400">
+                                    {item.type === 'dir' ? 'Pasta' : formatFileSize(item.size)} • {item.path}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2 shrink-0">
+                                {item.type === 'dir' ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setGithubPath(item.path)}
+                                    className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-md cursor-pointer"
+                                  >
+                                    Selecionar Pasta →
+                                  </button>
+                                ) : (
+                                  <>
+                                    {isJson && item.download_url && (
+                                      <button
+                                        type="button"
+                                        onClick={async () => {
+                                          try {
+                                            const res = await fetch(item.download_url!);
+                                            const text = await res.text();
+                                            const result = importDatabaseJson(text);
+                                            if (result.success) {
+                                              showToast(`Backup "${item.name}" importado com sucesso!`, 'success');
+                                            } else {
+                                              setGithubError(result.message);
+                                            }
+                                          } catch {
+                                            setGithubError(`Falha ao importar ${item.name}.`);
+                                          }
+                                        }}
+                                        className="px-2.5 py-1 bg-[#0284c7] hover:bg-[#0369a1] text-white font-bold rounded-md cursor-pointer"
+                                      >
+                                        Restaurar JSON
+                                      </button>
+                                    )}
+                                    {isImage && item.download_url && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const newAlbum = {
+                                            id: `gh-img-${Date.now()}`,
+                                            title: item.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' '),
+                                            category: 'Festivais Esportivos',
+                                            date: new Date().toLocaleDateString('pt-BR'),
+                                            location: 'Cariacica - ES',
+                                            coverUrl: item.download_url!,
+                                            caption: `Imagem importada do GitHub (${item.path})`,
+                                            albumPhotos: [
+                                              {
+                                                url: item.download_url!,
+                                                caption: item.name,
+                                              },
+                                            ],
+                                          };
+                                          const updated = [newAlbum, ...draftAlbums];
+                                          setDraftAlbums(updated);
+                                          saveAdminChanges({
+                                            galleryAlbums: updated,
+                                            toastMessage: `Imagem "${item.name}" adicionada à Galeria!`,
+                                          });
+                                        }}
+                                        className="px-2.5 py-1 bg-sky-100 hover:bg-sky-200 text-sky-900 font-bold rounded-md cursor-pointer"
+                                      >
+                                        + Galeria
+                                      </button>
+                                    )}
+                                    {item.download_url && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const ext = lower.split('.').pop()?.toUpperCase() || 'ARQ';
+                                          const newDoc = {
+                                            id: `gh-doc-${Date.now()}`,
+                                            title: item.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' '),
+                                            category: 'governanca' as const,
+                                            date: new Date().toLocaleDateString('pt-BR'),
+                                            description: `Importado do repositório GitHub (${item.path})`,
+                                            fileType: `${ext} • ${formatFileSize(item.size || 1024)}`,
+                                            badge: 'GitHub',
+                                            downloadUrl: item.download_url!,
+                                            fileName: item.name,
+                                            fileSize: formatFileSize(item.size || 1024),
+                                          };
+                                          const updated = [newDoc, ...draftDocs];
+                                          setDraftDocs(updated);
+                                          saveAdminChanges({
+                                            transparencyDocs: updated,
+                                            toastMessage: `Arquivo "${item.name}" importado para Transparência!`,
+                                          });
+                                        }}
+                                        className="px-2.5 py-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-900 font-bold rounded-md cursor-pointer"
+                                      >
+                                        + Transparência
+                                      </button>
+                                    )}
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                </div>
               </div>
             );
           })()}
@@ -6938,23 +9285,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
       {/* ========================================================================= */}
       {unsavedClosePromptOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs">
-          <div
-            ref={unsavedDialogRef}
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby={`${fid}-unsaved-title`}
-            aria-describedby={`${fid}-unsaved-desc`}
-            className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4"
-          >
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-amber-100 text-amber-700 rounded-full flex items-center justify-center shrink-0">
                 <AlertTriangle className="w-5 h-5" />
               </div>
               <div>
-                <h3 id={`${fid}-unsaved-title`} className="font-black text-sm text-[#0a1e36] uppercase">
+                <h3 className="font-black text-sm text-[#0a1e36] uppercase">
                   Alterações Não Salvas
                 </h3>
-                <p id={`${fid}-unsaved-desc`} className="text-xs text-slate-600 mt-0.5">
+                <p className="text-xs text-slate-600 mt-0.5">
                   Você fez edições no painel administrativo que ainda não foram salvas. Deseja salvar antes de sair?
                 </p>
               </div>
@@ -7003,33 +9343,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
       {/* ========================================================================= */}
       {pinPromptOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs">
-          <div
-            ref={pinDialogRef}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby={`${fid}-pin-title`}
-            aria-describedby={`${fid}-pin-desc`}
-            className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 space-y-4 text-center"
-          >
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 space-y-4 text-center">
             <div className="w-12 h-12 bg-amber-100 text-amber-700 rounded-full flex items-center justify-center mx-auto">
               <KeyRound className="w-6 h-6" />
             </div>
 
             <div>
-              <h3 id={`${fid}-pin-title`} className="font-black text-sm text-[#0a1e36] uppercase">
+              <h3 className="font-black text-sm text-[#0a1e36] uppercase">
                 Confirmação de Segurança
               </h3>
-              <p id={`${fid}-pin-desc`} className="text-xs text-slate-500 mt-1">
+              <p className="text-xs text-slate-500 mt-1">
                 Esta é uma ação protegida. Digite o PIN mestre de 6 dígitos para autorizar:
               </p>
             </div>
 
             {pinError && (
-              <div
-                id={`${fid}-pin-error`}
-                role="alert"
-                className="text-xs font-bold text-rose-600 bg-rose-50 p-2 rounded-lg"
-              >
+              <div className="text-xs font-bold text-rose-600 bg-rose-50 p-2 rounded-lg">
                 PIN incorreto! Verifique o código cadastrado.
               </div>
             )}
@@ -7037,12 +9366,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
             <form onSubmit={handleConfirmPin} className="space-y-4">
               <input
                 type="password"
-                aria-label="PIN de segurança"
-                aria-invalid={pinError}
-                aria-describedby={pinError ? `${fid}-pin-error` : undefined}
-                inputMode="numeric"
-                autoComplete="off"
-                pattern="\d{6}"
                 required
                 maxLength={6}
                 autoFocus

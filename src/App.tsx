@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, lazy, Suspense } from 'react';
-import { m, LazyMotion, MotionConfig } from 'motion/react';
+import React, { useState, useEffect } from 'react';
+import { motion } from 'motion/react';
 import { ClubDataProvider, useClubData } from './context/ClubDataContext.tsx';
 import { Header } from './components/Header.tsx';
 import { HeroCarousel } from './components/HeroCarousel.tsx';
@@ -12,56 +12,17 @@ import { EventsCalendar } from './components/EventsCalendar.tsx';
 import { PhotoGallerySection } from './components/PhotoGallerySection.tsx';
 import { UltimasNoticias } from './components/UltimasNoticias.tsx';
 import { Footer } from './components/Footer.tsx';
+import { SearchModal } from './components/SearchModal.tsx';
+import { ReservationSimulatorModal } from './components/ReservationSimulatorModal.tsx';
 import { CookieBanner } from './components/CookieBanner.tsx';
+import { SubpageView } from './components/SubpageView.tsx';
+import { AdminPanel } from './components/AdminPanel.tsx';
 import { SponsorsSection } from './components/SponsorsSection.tsx';
+import { CommunityHubView } from './components/CommunityHubView.tsx';
 import { ArrowUp, Megaphone, ArrowRight } from 'lucide-react';
 import type { EventCategory } from './types/index.ts';
 
-// Recursos de animação do motion carregados sob demanda (fora do bundle inicial)
-const loadFeatures = () => import('./motionFeatures.ts').then((mod) => mod.default);
-
-// Carregados sob demanda: ficam fora do bundle inicial (o painel inclui Firebase Auth)
-const SearchModal = lazy(() =>
-  import('./components/SearchModal.tsx').then((m) => ({ default: m.SearchModal }))
-);
-const ReservationSimulatorModal = lazy(() =>
-  import('./components/ReservationSimulatorModal.tsx').then((m) => ({
-    default: m.ReservationSimulatorModal,
-  }))
-);
-const SubpageView = lazy(() =>
-  import('./components/SubpageView.tsx').then((m) => ({ default: m.SubpageView }))
-);
-const AdminPanel = lazy(() =>
-  import('./components/AdminPanel.tsx').then((m) => ({ default: m.AdminPanel }))
-);
-
 const EASE_EDITORIAL: [number, number, number, number] = [0.16, 1, 0.3, 1];
-
-// ============================================================================
-// Rotas por hash: #/<pagina>/<item>  (ex.: #/noticias/<id>, #/eventos/<id>)
-// Mantém Voltar/recarregar/compartilhar funcionando sem servidor de rotas.
-// ============================================================================
-type Route = { page: string | null; sub?: string };
-
-const EVENT_CATEGORIES = ['clinica_esportiva', 'oficina_comunitaria', 'reuniao_associacao'];
-
-function parseRoute(hash: string): Route | null {
-  if (hash.startsWith('#/')) {
-    const [page, sub] = hash.slice(2).split('/').map((p) => decodeURIComponent(p));
-    return { page: page || null, sub: sub || undefined };
-  }
-  // Links antigos de compartilhamento de evento: #eventos-<id>
-  const legacy = hash.match(/^#eventos-(.+)$/);
-  if (legacy) return { page: 'eventos', sub: decodeURIComponent(legacy[1]) };
-  if (hash === '' || hash === '#') return { page: null };
-  return null; // #admin, #conteudo etc. não mudam a página
-}
-
-function routeToHash(page: string | null, sub?: string): string {
-  if (!page) return '#/';
-  return `#/${encodeURIComponent(page)}${sub ? `/${encodeURIComponent(sub)}` : ''}`;
-}
 
 function VitalizarMainApp() {
   const { siteSettings } = useClubData();
@@ -73,52 +34,12 @@ function VitalizarMainApp() {
   const [activeSubpage, setActiveSubpage] = useState<string | null>(null);
   const [activeSubTab, setActiveSubTab] = useState<string | undefined>(undefined);
   const [homeEventCategory, setHomeEventCategory] = useState<EventCategory | 'all'>('all');
-  const [homeEventId, setHomeEventId] = useState<string | undefined>(undefined);
-
-  /** Aplica uma rota ao estado da tela (só usa setters, seguro dentro de listeners). */
-  const applyRoute = (route: Route) => {
-    const { page, sub } = route;
-    if (!page || page === 'home') {
-      setActiveSubpage(null);
-      setActiveSubTab(undefined);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-      return;
-    }
-
-    if (page === 'eventos') {
-      if (sub && EVENT_CATEGORIES.includes(sub)) {
-        setHomeEventCategory(sub as EventCategory);
-        setHomeEventId(undefined);
-      } else {
-        setHomeEventCategory('all');
-        setHomeEventId(sub);
-      }
-      setActiveSubpage(null);
-      setActiveSubTab(undefined);
-      setTimeout(() => {
-        const el = document.getElementById('eventos-calendario');
-        if (el) {
-          el.scrollIntoView({ behavior: 'smooth' });
-        } else {
-          window.scrollTo({ top: 650, behavior: 'smooth' });
-        }
-      }, 100);
-      return;
-    }
-
-    setActiveSubpage(page);
-    setActiveSubTab(sub);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
 
   useEffect(() => {
     const checkHash = () => {
       if (window.location.hash === '#admin') {
         setAdminOpen(true);
-        return;
       }
-      const route = parseRoute(window.location.hash);
-      if (route) applyRoute(route);
     };
     checkHash();
     window.addEventListener('hashchange', checkHash);
@@ -146,28 +67,47 @@ function VitalizarMainApp() {
     };
   }, []);
 
-  /** Navega atualizando o hash (cria entrada no histórico → botão Voltar funciona). */
   const handleOpenSubpage = (pageId: string, subId?: string) => {
+    if (pageId === 'home') {
+      setActiveSubpage(null);
+      setActiveSubTab(undefined);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
     if (pageId === 'inscricoes') {
       setInscricoesOpen(true);
       return;
     }
 
-    let route: Route;
-    if (pageId === 'home') {
-      route = { page: null };
-    } else if (pageId === 'eventos' || subId === 'eventos') {
-      route = { page: 'eventos', sub: subId === 'eventos' ? undefined : subId };
-    } else {
-      route = { page: pageId, sub: subId };
+    if (pageId === 'eventos' || subId === 'eventos') {
+      if (
+        subId === 'clinica_esportiva' ||
+        subId === 'oficina_comunitaria' ||
+        subId === 'reuniao_associacao'
+      ) {
+        setHomeEventCategory(subId);
+      } else {
+        setHomeEventCategory('all');
+      }
+      if (activeSubpage) {
+        setActiveSubpage(null);
+        setActiveSubTab(undefined);
+      }
+      setTimeout(() => {
+        const el = document.getElementById('eventos-calendario');
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth' });
+        } else {
+          window.scrollTo({ top: 650, behavior: 'smooth' });
+        }
+      }, 100);
+      return;
     }
 
-    const hash = routeToHash(route.page, route.sub);
-    if (window.location.hash === hash) {
-      applyRoute(route); // mesmo endereço: hashchange não dispara
-    } else {
-      window.location.hash = hash; // o listener de hashchange aplica a rota
-    }
+    setActiveSubpage(pageId);
+    setActiveSubTab(subId);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleSearchSelectAction = (actionType: string, id: string) => {
@@ -190,19 +130,12 @@ function VitalizarMainApp() {
 
   return (
     <div className="min-h-screen flex flex-col bg-white text-slate-800">
-      <a
-        href="#conteudo"
-        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[200] focus:px-4 focus:py-2 focus:bg-white focus:text-[#061a38] focus:font-bold focus:rounded-md focus:shadow-lg"
-      >
-        Pular para o conteúdo
-      </a>
-
       {/* Dynamic Institutional Announcement Bar (Configured in Admin Settings) */}
       {siteSettings.announcementBanner?.enabled && siteSettings.announcementBanner.text && (
         <div className="bg-[#0284c7] text-white px-4 py-2 text-xs font-medium border-b border-sky-400/30">
           <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2 text-center sm:text-left">
             <div className="flex items-center gap-2 justify-center sm:justify-start">
-              <Megaphone className="w-3.5 h-3.5 text-sky-200 shrink-0" aria-hidden="true" />
+              <Megaphone className="w-3.5 h-3.5 text-sky-200 shrink-0" />
               <span>{siteSettings.announcementBanner.text}</span>
             </div>
             {siteSettings.announcementBanner.linkLabel && (
@@ -231,28 +164,31 @@ function VitalizarMainApp() {
       />
 
       {/* Main Content */}
-      <main id="conteudo" tabIndex={-1} className="flex-1 focus:outline-none">
+      <main className="flex-1">
         {activeSubpage ? (
-          <Suspense fallback={<div className="min-h-[60vh]" />}>
-            <SubpageView
-              key={`${activeSubpage}-${activeSubTab ?? ''}`}
-              pageId={activeSubpage}
-              subId={activeSubTab}
-              onBack={() => handleOpenSubpage('home')}
-              onOpenInscricoes={() => setInscricoesOpen(true)}
-            />
-          </Suspense>
+          <SubpageView
+            pageId={activeSubpage}
+            subId={activeSubTab}
+            onBack={() => setActiveSubpage(null)}
+            onOpenInscricoes={() => setInscricoesOpen(true)}
+          />
         ) : (
           <>
             {/* Section 1: Editorial Hero & Quick Pillars */}
-            {/* Sem fade de entrada: o hero é o maior conteúdo visível (LCP) e deve aparecer de imediato */}
-            <HeroCarousel
-              onOpenInscricoes={() => setInscricoesOpen(true)}
-              onOpenSubpage={handleOpenSubpage}
-            />
+            <motion.div
+              initial={{ opacity: 0, y: 16 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, amount: 0.08 }}
+              transition={{ duration: 0.55, ease: EASE_EDITORIAL }}
+            >
+              <HeroCarousel
+                onOpenInscricoes={() => setInscricoesOpen(true)}
+                onOpenSubpage={handleOpenSubpage}
+              />
+            </motion.div>
 
             {/* Section 2: Agenda de Eventos & Oficinas (RSVP Rápido) */}
-            <m.div
+            <motion.div
               initial={{ opacity: 0, y: 24 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, amount: 0.08 }}
@@ -261,22 +197,34 @@ function VitalizarMainApp() {
               <EventsCalendar
                 onOpenInscricoes={() => setInscricoesOpen(true)}
                 initialCategory={homeEventCategory}
-                initialEventId={homeEventId}
               />
-            </m.div>
+            </motion.div>
+
+            {/* Section 2B: Portal do Atleta, Resultados da Base, Apoio PIX & Voluntariado */}
+            <motion.div
+              initial={{ opacity: 0, y: 24 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, amount: 0.08 }}
+              transition={{ duration: 0.6, ease: EASE_EDITORIAL }}
+            >
+              <CommunityHubView
+                mode="home_section"
+                onOpenFullHub={(tab) => handleOpenSubpage('portal-comunidade', tab)}
+              />
+            </motion.div>
 
             {/* Section 3: Galeria de Projetos e Eventos com Lightbox */}
-            <m.div
+            <motion.div
               initial={{ opacity: 0, y: 24 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, amount: 0.08 }}
               transition={{ duration: 0.6, ease: EASE_EDITORIAL }}
             >
               <PhotoGallerySection />
-            </m.div>
+            </motion.div>
 
             {/* Section 4: Notícias Recentes & Acesso Institucional */}
-            <m.div
+            <motion.div
               initial={{ opacity: 0, y: 24 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, amount: 0.08 }}
@@ -286,11 +234,11 @@ function VitalizarMainApp() {
                 onViewAllNews={() => handleOpenSubpage('noticias')}
                 onOpenSubpage={handleOpenSubpage}
               />
-            </m.div>
+            </motion.div>
 
             {/* Section 5: Patrocinadores e Parceiros Oficiais */}
             {siteSettings.enableSponsorsSection !== false && (
-              <m.div
+              <motion.div
                 id="patrocinadores-oficiais"
                 initial={{ opacity: 0, y: 24 }}
                 whileInView={{ opacity: 1, y: 0 }}
@@ -300,7 +248,7 @@ function VitalizarMainApp() {
                 <SponsorsSection
                   onOpenContact={() => handleOpenSubpage('contato', 'parcerias')}
                 />
-              </m.div>
+              </motion.div>
             )}
           </>
         )}
@@ -322,7 +270,7 @@ function VitalizarMainApp() {
         <button
           type="button"
           onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-          className="fixed bottom-6 right-20 z-30 p-3 bg-slate-900 hover:bg-[#0284c7] text-white rounded-full shadow-lg border border-slate-700 transition-colors duration-200 cursor-pointer"
+          className="fixed bottom-6 right-20 z-30 p-3 bg-slate-900 hover:bg-[#0284c7] text-white rounded-full shadow-lg border border-slate-700 transition-all duration-200 cursor-pointer"
           title="Voltar ao Topo"
           aria-label="Voltar ao Topo"
         >
@@ -330,33 +278,28 @@ function VitalizarMainApp() {
         </button>
       )}
 
-      {/* Interactive Modals (montados só quando abertos) */}
-      <Suspense fallback={null}>
-        {searchOpen && (
-          <SearchModal
-            isOpen
-            onClose={() => setSearchOpen(false)}
-            onSelectAction={handleSearchSelectAction}
-          />
-        )}
+      {/* Interactive Modals */}
+      <SearchModal
+        isOpen={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        onSelectAction={handleSearchSelectAction}
+      />
 
-        {inscricoesOpen && (
-          <ReservationSimulatorModal isOpen onClose={() => setInscricoesOpen(false)} />
-        )}
-      </Suspense>
+      <ReservationSimulatorModal
+        isOpen={inscricoesOpen}
+        onClose={() => setInscricoesOpen(false)}
+      />
 
       {/* Admin Control Panel */}
       {adminOpen && (
-        <Suspense fallback={<div className="fixed inset-0 z-50 bg-[#061a38]" />}>
-          <AdminPanel
-            onClose={() => {
-              setAdminOpen(false);
-              if (window.location.hash === '#admin') {
-                window.history.pushState(null, '', window.location.pathname);
-              }
-            }}
-          />
-        </Suspense>
+        <AdminPanel
+          onClose={() => {
+            setAdminOpen(false);
+            if (window.location.hash === '#admin') {
+              window.history.pushState(null, '', window.location.pathname);
+            }
+          }}
+        />
       )}
     </div>
   );
@@ -365,12 +308,7 @@ function VitalizarMainApp() {
 export default function App() {
   return (
     <ClubDataProvider>
-      {/* Respeita "reduzir movimento" do sistema nas animações do motion */}
-      <MotionConfig reducedMotion="user">
-        <LazyMotion features={loadFeatures} strict>
-          <VitalizarMainApp />
-        </LazyMotion>
-      </MotionConfig>
+      <VitalizarMainApp />
     </ClubDataProvider>
   );
 }

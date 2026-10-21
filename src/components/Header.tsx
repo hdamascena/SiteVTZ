@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useId } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Search,
   Menu,
@@ -6,9 +6,6 @@ import {
   Lock,
   ArrowUpRight,
 } from 'lucide-react';
-
-import { useClubData } from '../context/ClubDataContext.tsx';
-import { useDialog } from '../hooks/useDialog.ts';
 
 interface HeaderProps {
   onOpenSearch: () => void;
@@ -22,6 +19,7 @@ const NAV_LINKS = [
   { id: 'home', label: 'Início' },
   { id: 'a-vitalizar', label: 'Quem Somos' },
   { id: 'projetos', label: 'Projetos' },
+  { id: 'portal-comunidade', label: 'Portal & PIX' },
   { id: 'eventos', label: 'Agenda' },
   { id: 'noticias', label: 'Notícias' },
   { id: 'patrocinadores', label: 'Parceiros' },
@@ -36,11 +34,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenAdmin,
   activePageId = 'home',
 }) => {
-  const { clubInfo } = useClubData();
   const [isScrolled, setIsScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const drawerRef = useDialog(mobileMenuOpen, () => setMobileMenuOpen(false));
-  const drawerId = useId();
 
   useEffect(() => {
     const handleScroll = () => {
@@ -57,7 +52,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   return (
     <header
-      className={`sticky top-0 z-40 w-full transition-[background-color,border-color,box-shadow] duration-200 ${
+      className={`sticky top-0 z-40 w-full transition-all duration-200 ${
         isScrolled
           ? 'bg-[#04142b]/95 backdrop-blur-md border-b border-sky-900/60 shadow-lg'
           : 'bg-[#061a38] border-b border-sky-900/50'
@@ -73,10 +68,8 @@ export const Header: React.FC<HeaderProps> = ({
         >
           <img
             src="/logo.png"
-            alt=""
-            width={96}
-            height={96}
-            className="w-20 h-20 sm:w-24 sm:h-24 object-contain translate-y-2.5 sm:translate-y-3 drop-shadow-[0_10px_20px_rgba(0,0,0,0.6)] transition-transform duration-300 group-hover:scale-105 shrink-0"
+            alt="Brasão Associação Esportiva Vitalizar"
+            className="w-20 h-20 sm:w-24 sm:h-24 object-contain translate-y-2.5 sm:translate-y-3 pt-0 -mt-[21px] -ml-[13px] drop-shadow-[0_10px_20px_rgba(0,0,0,0.6)] transition-transform duration-300 group-hover:scale-105 shrink-0"
           />
           <span className="font-display text-white font-extrabold text-xl sm:text-2xl tracking-tight whitespace-nowrap shrink-0">
             VITALIZAR
@@ -95,8 +88,7 @@ export const Header: React.FC<HeaderProps> = ({
                 key={link.id}
                 type="button"
                 onClick={() => handleLinkClick(link.id)}
-                aria-current={isActive ? 'page' : undefined}
-                className={`text-sm font-semibold transition-colors py-1.5 whitespace-nowrap shrink-0 cursor-pointer relative after:content-[''] after:absolute after:bottom-0 after:left-0 after:h-0.5 after:bg-[#38bdf8] after:transition-[width] ${
+                className={`text-sm font-semibold transition-colors py-1.5 whitespace-nowrap shrink-0 cursor-pointer relative after:content-[''] after:absolute after:bottom-0 after:left-0 after:h-0.5 after:bg-[#38bdf8] after:transition-all ${
                   isActive
                     ? 'text-white after:w-full'
                     : 'text-sky-100/80 hover:text-white after:w-0 hover:after:w-full'
@@ -117,7 +109,7 @@ export const Header: React.FC<HeaderProps> = ({
             aria-label="Buscar no portal"
             title="Buscar no portal"
           >
-            <Search className="w-4 h-4" aria-hidden="true" />
+            <Search className="w-4 h-4" />
           </button>
 
           {onOpenAdmin && (
@@ -127,7 +119,7 @@ export const Header: React.FC<HeaderProps> = ({
               className="hidden sm:inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-sky-200 hover:text-white hover:bg-white/10 rounded-xl transition-colors cursor-pointer whitespace-nowrap shrink-0"
               title="Painel Administrativo"
             >
-              <Lock className="w-3.5 h-3.5 text-sky-400" aria-hidden="true" />
+              <Lock className="w-3.5 h-3.5 text-sky-400" />
               <span>Admin</span>
             </button>
           )}
@@ -135,10 +127,10 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             type="button"
             onClick={onOpenInscricoes}
-            className="hidden sm:inline-flex items-center gap-1.5 px-4 py-2.5 bg-[#0284c7] hover:bg-[#0ea5e9] text-white font-semibold text-xs rounded-xl transition-colors cursor-pointer whitespace-nowrap shrink-0 shadow-md shadow-sky-950/50"
+            className="hidden sm:inline-flex items-center gap-1.5 px-4 py-2.5 bg-[#0284c7] hover:bg-[#0ea5e9] text-white font-semibold text-xs rounded-xl transition-all cursor-pointer whitespace-nowrap shrink-0 shadow-md shadow-sky-950/50"
           >
             <span>Inscrever-se</span>
-            <ArrowUpRight className="w-3.5 h-3.5" aria-hidden="true" />
+            <ArrowUpRight className="w-3.5 h-3.5" />
           </button>
 
           {/* Mobile Menu Trigger */}
@@ -148,9 +140,8 @@ export const Header: React.FC<HeaderProps> = ({
             className="lg:hidden p-2.5 text-sky-100 hover:text-white hover:bg-white/10 rounded-xl transition-colors cursor-pointer"
             aria-label={mobileMenuOpen ? 'Fechar menu' : 'Abrir menu de navegação'}
             aria-expanded={mobileMenuOpen}
-            aria-controls={drawerId}
           >
-            {mobileMenuOpen ? <X className="w-5 h-5" aria-hidden="true" /> : <Menu className="w-5 h-5" aria-hidden="true" />}
+            {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
         </div>
       </div>
@@ -161,24 +152,14 @@ export const Header: React.FC<HeaderProps> = ({
           <div
             className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs"
             onClick={() => setMobileMenuOpen(false)}
-            aria-hidden="true"
           />
-          <div
-            ref={drawerRef}
-            id={drawerId}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Menu"
-            className="relative w-full max-w-xs bg-[#061a38] text-white h-full shadow-2xl border-l border-sky-900/60 p-6 flex flex-col justify-between overflow-y-auto overscroll-contain"
-          >
+          <div className="relative w-full max-w-xs bg-[#061a38] text-white h-full shadow-2xl border-l border-sky-900/60 p-6 flex flex-col justify-between overflow-y-auto">
             <div>
               <div className="flex items-center justify-between pb-5 border-b border-sky-900/60">
                 <div className="flex items-center gap-3">
                   <img
                     src="/logo.png"
-                    alt=""
-                    width={44}
-                    height={44}
+                    alt="Brasão Vitalizar"
                     className="w-11 h-11 object-contain shrink-0"
                   />
                   <span className="font-display font-extrabold text-lg text-white">
@@ -191,7 +172,7 @@ export const Header: React.FC<HeaderProps> = ({
                   className="p-2 text-sky-300 hover:text-white rounded-lg hover:bg-white/10 cursor-pointer"
                   aria-label="Fechar menu"
                 >
-                  <X className="w-5 h-5" aria-hidden="true" />
+                  <X className="w-5 h-5" />
                 </button>
               </div>
 
@@ -229,7 +210,7 @@ export const Header: React.FC<HeaderProps> = ({
                     }}
                     className="w-full py-2.5 px-4 bg-white/10 hover:bg-white/15 text-sky-100 font-semibold text-xs rounded-xl flex items-center justify-center gap-2 transition-colors cursor-pointer"
                   >
-                    <Lock className="w-3.5 h-3.5 text-sky-400" aria-hidden="true" />
+                    <Lock className="w-3.5 h-3.5 text-sky-400" />
                     <span>Painel Administrativo</span>
                   </button>
                 )}
@@ -237,9 +218,9 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
 
             <div className="pt-6 border-t border-sky-900/60 text-xs text-sky-300/80 space-y-1">
-              <p className="font-semibold text-white">{clubInfo.fullName}</p>
-              <p>{clubInfo.municipality}</p>
-              <p>{clubInfo.phones.join(' · ')}</p>
+              <p className="font-semibold text-white">Associação Esportiva Vitalizar</p>
+              <p>Rio Marinho · Cariacica/ES</p>
+              <p>(27) 9774-0773 · (27) 9297-9056</p>
             </div>
           </div>
         </div>

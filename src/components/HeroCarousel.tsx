@@ -1,11 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { m, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowRight,
   ChevronLeft,
   ChevronRight,
-  Pause,
-  Play,
   Clock,
   MapPin,
   Trophy,
@@ -67,37 +65,27 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
   onOpenInscricoes,
   onOpenSubpage,
 }) => {
-  const { projects, events } = useClubData();
+  const { projects, events, siteSettings } = useClubData();
+  const slides =
+    Array.isArray(siteSettings.heroSlides) && siteSettings.heroSlides.length > 0
+      ? siteSettings.heroSlides
+      : HERO_SLIDES;
   const [activeSlide, setActiveSlide] = useState(0);
-  // Pausado pelo usuário (botão) ou por padrão quando o sistema pede menos movimento
-  const [userPaused, setUserPaused] = useState<boolean>(
-    () => !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-  );
-  // Pausa temporária enquanto o mouse ou o foco do teclado estão no carrossel
-  const [hoverPaused, setHoverPaused] = useState(false);
-  const isPaused = userPaused || hoverPaused;
 
   useEffect(() => {
-    if (isPaused) return;
     const timer = setInterval(() => {
-      setActiveSlide((prev) => (prev + 1) % HERO_SLIDES.length);
+      setActiveSlide((prev) => (prev + 1) % slides.length);
     }, 7000);
     return () => clearInterval(timer);
-  }, [isPaused]);
+  }, [slides.length]);
 
-  const current = HERO_SLIDES[activeSlide];
+  const current = slides[activeSlide % slides.length] || slides[0];
+
 
   return (
     <section
       className="bg-slate-50 border-b border-slate-200"
       aria-label="Destaques e Modalidades da Associação Esportiva Vitalizar"
-      aria-roledescription="carrossel"
-      onMouseEnter={() => setHoverPaused(true)}
-      onMouseLeave={() => setHoverPaused(false)}
-      onFocus={() => setHoverPaused(true)}
-      onBlur={(e) => {
-        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setHoverPaused(false);
-      }}
     >
       {/* Part 1: High-Impact Athletic Hero Showcase */}
       <div className="relative bg-gradient-to-br from-[#041226] via-[#071f40] to-[#0a2b56] text-white overflow-hidden">
@@ -113,13 +101,15 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-16">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-12 items-stretch">
             {/* Left Column: Editorial Headline, Crest Badge & Actions */}
-            {/* Sem fade inicial: o título do hero é o maior conteúdo visível (LCP) */}
-            <m.div
-              initial={false}
+            <motion.div
+              initial={{ opacity: 0, y: 18 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, amount: 0.2 }}
+              transition={{ duration: 0.55, ease: EASE_EDITORIAL }}
               className="lg:col-span-7 flex flex-col justify-between space-y-8"
             >
               <AnimatePresence mode="wait">
-                <m.div
+                <motion.div
                   key={current.id}
                   initial={{ opacity: 0, y: 12 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -132,8 +122,6 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
                     <img
                       src="/logo.png"
                       alt="Brasão Oficial Vitalizar"
-                      width={32}
-                      height={32}
                       className="w-8 h-8 object-contain drop-shadow-sm shrink-0"
                     />
                     <span>{current.kicker}</span>
@@ -149,7 +137,7 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
                   <p className="text-base sm:text-lg text-sky-100/90 leading-relaxed max-w-2xl">
                     {current.description}
                   </p>
-                </m.div>
+                </motion.div>
               </AnimatePresence>
 
               {/* Action Buttons & Slide Controls */}
@@ -158,7 +146,7 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
                   <button
                     type="button"
                     onClick={onOpenInscricoes}
-                    className="px-6 py-3.5 bg-[#0284c7] hover:bg-[#0ea5e9] text-white font-semibold text-sm rounded-xl shadow-lg shadow-sky-950/60 transition-colors inline-flex items-center gap-2.5 cursor-pointer whitespace-nowrap shrink-0"
+                    className="px-6 py-3.5 bg-[#0284c7] hover:bg-[#0ea5e9] text-white font-semibold text-sm rounded-xl shadow-lg shadow-sky-950/60 transition-all inline-flex items-center gap-2.5 cursor-pointer whitespace-nowrap shrink-0"
                   >
                     <span>{current.primaryActionLabel}</span>
                     <ArrowRight className="w-4 h-4" />
@@ -204,14 +192,13 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
 
                   {/* Slide Navigation Controls */}
                   <div className="flex items-center gap-2 self-start sm:self-auto">
-                    {HERO_SLIDES.map((s, idx) => (
+                    {slides.map((s, idx) => (
                       <button
                         key={s.id}
                         type="button"
                         onClick={() => setActiveSlide(idx)}
                         aria-label={`Ir para destaque ${idx + 1}`}
-                        aria-current={activeSlide === idx ? 'true' : undefined}
-                        className={`h-2 rounded-full transition-[width,background-color] cursor-pointer ${
+                        className={`h-2 rounded-full transition-all cursor-pointer ${
                           activeSlide === idx
                             ? 'w-8 bg-[#38bdf8]'
                             : 'w-2 bg-white/30 hover:bg-white/60'
@@ -221,22 +208,9 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
                     <div className="flex items-center gap-1 ml-2">
                       <button
                         type="button"
-                        onClick={() => setUserPaused((p) => !p)}
-                        className="p-2 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
-                        aria-label={userPaused ? 'Retomar troca automática dos destaques' : 'Pausar troca automática dos destaques'}
-                        aria-pressed={userPaused}
-                      >
-                        {userPaused ? (
-                          <Play className="w-4 h-4" aria-hidden="true" />
-                        ) : (
-                          <Pause className="w-4 h-4" aria-hidden="true" />
-                        )}
-                      </button>
-                      <button
-                        type="button"
                         onClick={() =>
                           setActiveSlide(
-                            (prev) => (prev - 1 + HERO_SLIDES.length) % HERO_SLIDES.length
+                            (prev) => (prev - 1 + slides.length) % slides.length
                           )
                         }
                         className="p-2 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
@@ -247,7 +221,7 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
                       <button
                         type="button"
                         onClick={() =>
-                          setActiveSlide((prev) => (prev + 1) % HERO_SLIDES.length)
+                          setActiveSlide((prev) => (prev + 1) % slides.length)
                         }
                         className="p-2 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
                         aria-label="Próximo destaque"
@@ -256,14 +230,17 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
                       </button>
                     </div>
                   </div>
+
                 </div>
               </div>
-            </m.div>
+            </motion.div>
 
             {/* Right Column: Visual Media Showcase Card */}
-            {/* Sem fade inicial: a imagem do hero é candidata a LCP */}
-            <m.div
-              initial={false}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.97, y: 18 }}
+              whileInView={{ opacity: 1, scale: 1, y: 0 }}
+              viewport={{ once: true, amount: 0.2 }}
+              transition={{ duration: 0.6, delay: 0.1, ease: EASE_EDITORIAL }}
               className="lg:col-span-5 flex"
             >
               <div className="relative w-full rounded-2xl overflow-hidden bg-slate-900 border border-sky-400/30 shadow-2xl flex flex-col justify-between min-h-[340px] lg:min-h-full">
@@ -271,11 +248,7 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
                   src={current.image}
                   alt={current.caption}
                   referrerPolicy="no-referrer"
-                  width={1400}
-                  height={933}
-                  fetchPriority="high"
-                  decoding="async"
-                  className="absolute inset-0 w-full h-full object-cover object-center transition-opacity duration-500"
+                  className="absolute inset-0 w-full h-full object-cover object-center transition-all duration-500"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-[#030d1c]/95 via-[#030d1c]/40 to-transparent" />
 
@@ -311,14 +284,14 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
                   </div>
                 </div>
               </div>
-            </m.div>
+            </motion.div>
           </div>
         </div>
       </div>
 
       {/* Part 2: Visually Rich Modalities & Programs Bento Showcase with Scroll Reveal */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-14">
-        <m.div
+        <motion.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, amount: 0.25 }}
@@ -342,12 +315,12 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
             <span>Ver todos os {projects.length} projetos detalhados</span>
             <ArrowRight className="w-4 h-4" />
           </button>
-        </m.div>
+        </motion.div>
 
         {/* 4-Card Visual Program Grid with Staggered Scroll Reveal */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
           {projects.slice(0, 4).map((proj, index) => (
-            <m.div
+            <motion.div
               key={proj.id}
               initial={{ opacity: 0, y: 24 }}
               whileInView={{ opacity: 1, y: 0 }}
@@ -357,7 +330,7 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
                 delay: index * 0.08,
                 ease: EASE_EDITORIAL,
               }}
-              className="group bg-white rounded-2xl border border-slate-200/90 hover:border-sky-400/70 shadow-xs hover:shadow-xl transition-[border-color,box-shadow] duration-300 overflow-hidden flex flex-col justify-between"
+              className="group bg-white rounded-2xl border border-slate-200/90 hover:border-sky-400/70 shadow-xs hover:shadow-xl transition-all duration-300 overflow-hidden flex flex-col justify-between"
             >
               <div>
                 <div className="relative aspect-16/10 w-full overflow-hidden bg-slate-900">
@@ -365,11 +338,8 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
                     src={proj.imageUrl}
                     alt={proj.name}
                     referrerPolicy="no-referrer"
-                    width={640}
-                    height={400}
                     className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                     loading="lazy"
-                    decoding="async"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-slate-950/75 via-transparent to-transparent" />
                   <span className="absolute bottom-3 left-3.5 text-xs font-semibold text-white">
@@ -411,12 +381,12 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
                   </button>
                 </div>
               </div>
-            </m.div>
+            </motion.div>
           ))}
         </div>
 
         {/* Institutional Trust & Pillars Bar */}
-        <m.div
+        <motion.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, amount: 0.25 }}
@@ -464,7 +434,7 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
               </p>
             </div>
           </div>
-        </m.div>
+        </motion.div>
       </div>
     </section>
   );

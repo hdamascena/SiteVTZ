@@ -12,15 +12,6 @@ export interface VitalizarCategoryConfig {
   isExempt: boolean;
 }
 
-/** Modalidades permanentes usadas na pré-inscrição do site e no painel administrativo. */
-export const MODALITY_NAMES: Record<string, string> = {
-  iniciacao_esportiva: 'Iniciação Esportiva (Futsal, Vôlei)',
-  condicionamento_fisico: 'Condicionamento Físico & Saúde',
-  danca_cultura: 'Oficinas Culturais e Dança',
-  esporte_adaptado: 'Inclusão & Esporte Adaptado (PcD)',
-  vida_ativa_idosos: 'Projeto Vida Ativa (Pessoas Idosas)',
-};
-
 export const VITALIZAR_CATEGORIES: Record<string, VitalizarCategoryConfig> = {
   contribuinte_individual: {
     id: 'contribuinte_individual',

@@ -27,7 +27,7 @@ export const ScoutContactModal: React.FC<ScoutContactModalProps> = ({
   player,
   projectName = 'Projeto Vitalizar',
 }) => {
-  const { addContactMessage, showToast } = useClubData();
+  const { addContactMessage, addScoutInquiry, showToast } = useClubData();
   const [scoutName, setScoutName] = useState('');
   const [scoutOrg, setScoutOrg] = useState('');
   const [scoutRole, setScoutRole] = useState('Olheiro / Observador Técnico');
@@ -43,6 +43,25 @@ export const ScoutContactModal: React.FC<ScoutContactModalProps> = ({
     e.preventDefault();
     if (!scoutName.trim() || !scoutPhone.trim()) return;
 
+    addScoutInquiry({
+      scoutName: scoutName.trim(),
+      organization: scoutOrg.trim() || 'Observador Independente',
+      role: scoutRole,
+      phone: scoutPhone.trim(),
+      email: scoutEmail.trim() || 'olheiro@contato.com',
+      inquiryType: scoutInterest.toLowerCase().includes('relatório')
+        ? 'relatorio_atleta'
+        : scoutInterest.toLowerCase().includes('parceria')
+        ? 'parceria_base'
+        : scoutInterest.toLowerCase().includes('visita')
+        ? 'visita_treino'
+        : 'avaliacao_clube',
+      targetPlayerName: `${player.name}${player.nickname ? ` "${player.nickname}"` : ''} (#${player.jerseyNumber})`,
+      targetCategory: player.category || 'Base',
+      message: scoutMessage.trim() || `Interesse de avaliação: ${scoutInterest}`,
+      projectName,
+    });
+
     addContactMessage({
       name: `${scoutName.trim()} (${scoutOrg.trim() || 'Scout Independente'})`,
       email: scoutEmail.trim() || 'olheiro@contato.com',
@@ -54,6 +73,7 @@ export const ScoutContactModal: React.FC<ScoutContactModalProps> = ({
     setIsSubmitted(true);
     showToast(`Solicitação para avaliação de ${player.nickname || player.name} enviada com sucesso!`);
   };
+
 
   const handleResetAndClose = () => {
     setIsSubmitted(false);

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { m } from 'motion/react';
+import { motion } from 'motion/react';
 import {
   ArrowRight,
   X,
@@ -12,8 +12,6 @@ import {
 } from 'lucide-react';
 import { useClubData } from '../context/ClubDataContext.tsx';
 import { NewsArticle } from '../types/index.ts';
-import { sortNewsByDate } from '../utils/newsSort.ts';
-import { useDialog } from '../hooks/useDialog.ts';
 
 interface UltimasNoticiasProps {
   onViewAllNews: () => void;
@@ -22,66 +20,15 @@ interface UltimasNoticiasProps {
 
 const EASE_EDITORIAL: [number, number, number, number] = [0.16, 1, 0.3, 1];
 
-/** Iniciais das duas primeiras palavras significativas (fallback de imagem quebrada). */
-const getInitials = (text: string) =>
-  text
-    .split(/\s+/)
-    .filter((w) => w.length > 2)
-    .slice(0, 2)
-    .map((w) => w[0].toUpperCase())
-    .join('') || text.slice(0, 1).toUpperCase();
-
-type NewsImageProps = React.ImgHTMLAttributes<HTMLImageElement> & {
-  src: string;
-  alt: string;
-  fallbackClassName?: string;
-};
-
-/**
- * Imagem de notícia com fallback neutro: se a URL falhar, some a imagem e
- * mostra as iniciais do título no mesmo espaço (sem trocar por foto genérica).
- * O `key={src}` no uso reinicia o estado quando a imagem muda.
- */
-const NewsImage: React.FC<NewsImageProps> = ({ src, alt, fallbackClassName = 'text-2xl', ...rest }) => {
-  const [failed, setFailed] = useState(false);
-  if (failed || !src) {
-    return (
-      <div
-        role="img"
-        aria-label={alt}
-        className="absolute inset-0 flex items-center justify-center bg-slate-800 text-white/60 font-display font-extrabold tracking-wide select-none"
-      >
-        <span className={fallbackClassName} aria-hidden="true">
-          {getInitials(alt)}
-        </span>
-      </div>
-    );
-  }
-  return (
-    <img
-      {...rest}
-      src={src}
-      alt={alt}
-      onError={(e) => {
-        e.currentTarget.onerror = null;
-        setFailed(true);
-      }}
-    />
-  );
-};
-
 export const UltimasNoticias: React.FC<UltimasNoticiasProps> = ({
   onViewAllNews,
   onOpenSubpage,
 }) => {
   const { newsArticles } = useClubData();
   const [selectedArticle, setSelectedArticle] = useState<NewsArticle | null>(null);
-  const dialogRef = useDialog(selectedArticle !== null, () => setSelectedArticle(null));
-  const dialogTitleId = React.useId();
 
-  const sortedArticles = sortNewsByDate(newsArticles);
-  const featuredArticle = sortedArticles[0];
-  const sideArticles = sortedArticles.slice(1, 4);
+  const featuredArticle = newsArticles[0];
+  const sideArticles = newsArticles.slice(1, 4);
 
   if (!featuredArticle) return null;
 
@@ -101,7 +48,7 @@ export const UltimasNoticias: React.FC<UltimasNoticiasProps> = ({
 
       <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Editorial Header */}
-        <m.div
+        <motion.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, amount: 0.25 }}
@@ -120,17 +67,17 @@ export const UltimasNoticias: React.FC<UltimasNoticiasProps> = ({
           <button
             type="button"
             onClick={onViewAllNews}
-            className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-white/75 hover:bg-white backdrop-blur-md text-slate-800 border border-white/90 font-semibold text-xs rounded-xl shadow-xs transition-colors cursor-pointer self-start sm:self-auto whitespace-nowrap shrink-0"
+            className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-white/75 hover:bg-white backdrop-blur-md text-slate-800 border border-white/90 font-semibold text-xs rounded-xl shadow-xs transition-all cursor-pointer self-start sm:self-auto whitespace-nowrap shrink-0"
           >
             <span>Ver Todas as Notícias</span>
-            <ArrowRight className="w-3.5 h-3.5 text-[#0284c7]" aria-hidden="true" />
+            <ArrowRight className="w-3.5 h-3.5 text-[#0284c7]" />
           </button>
-        </m.div>
+        </motion.div>
 
         {/* 2-Column Glassmorphic Editorial News Layout */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch">
           {/* Lead Story with Frosted Glass Overlay & Translucent Editorial Frame */}
-          <m.div
+          <motion.div
             initial={{ opacity: 0, y: 24 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, amount: 0.15 }}
@@ -140,20 +87,19 @@ export const UltimasNoticias: React.FC<UltimasNoticiasProps> = ({
             <button
               type="button"
               onClick={() => setSelectedArticle(featuredArticle)}
-              className="group relative text-left bg-white/70 hover:bg-white/85 backdrop-blur-xl rounded-2xl overflow-hidden border border-white/90 hover:border-sky-300/80 shadow-[0_12px_36px_rgb(15,23,42,0.07)] hover:shadow-[0_20px_44px_rgb(2,132,199,0.14)] transition-[background-color,border-color,box-shadow] duration-300 flex flex-col justify-between w-full cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600"
+              className="group relative text-left bg-white/70 hover:bg-white/85 backdrop-blur-xl rounded-2xl overflow-hidden border border-white/90 hover:border-sky-300/80 shadow-[0_12px_36px_rgb(15,23,42,0.07)] hover:shadow-[0_20px_44px_rgb(2,132,199,0.14)] transition-all duration-300 flex flex-col justify-between w-full cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600"
             >
               <div className="relative aspect-16/9 w-full overflow-hidden bg-slate-900">
-                <NewsImage
-                  key={featuredArticle.imageUrl}
+                <img
                   src={featuredArticle.imageUrl}
                   alt={featuredArticle.title}
                   referrerPolicy="no-referrer"
-                  width={1000}
-                  height={563}
                   className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                   loading="lazy"
-                  decoding="async"
-                  fallbackClassName="text-5xl"
+                  onError={(e) => {
+                    e.currentTarget.src =
+                      'https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=1000&q=80';
+                  }}
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-slate-950/20 to-transparent" />
 
@@ -169,7 +115,7 @@ export const UltimasNoticias: React.FC<UltimasNoticiasProps> = ({
                   <div className="flex items-center gap-2">
                     {featuredArticle.attachments && featuredArticle.attachments.length > 0 && (
                       <span className="inline-flex items-center gap-1 text-sky-300 font-semibold">
-                        <Paperclip className="w-3 h-3" aria-hidden="true" />
+                        <Paperclip className="w-3 h-3" />
                         <span>{featuredArticle.attachments.length}</span>
                       </span>
                     )}
@@ -193,16 +139,16 @@ export const UltimasNoticias: React.FC<UltimasNoticiasProps> = ({
 
                 <div className="mt-6 pt-4 border-t border-slate-200/70 flex items-center justify-between text-xs font-semibold text-[#0284c7] w-full">
                   <span>Ler matéria completa</span>
-                  <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" aria-hidden="true" />
+                  <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
                 </div>
               </div>
             </button>
-          </m.div>
+          </motion.div>
 
           {/* Secondary Glassmorphic Stories Stack */}
           <div className="lg:col-span-5 flex flex-col justify-between gap-4">
             {sideArticles.map((article, idx) => (
-              <m.button
+              <motion.button
                 key={article.id}
                 type="button"
                 initial={{ opacity: 0, y: 20 }}
@@ -214,20 +160,19 @@ export const UltimasNoticias: React.FC<UltimasNoticiasProps> = ({
                   ease: EASE_EDITORIAL,
                 }}
                 onClick={() => setSelectedArticle(article)}
-                className="group text-left bg-white/70 hover:bg-white/90 backdrop-blur-xl p-4 rounded-2xl border border-white/90 hover:border-sky-300/80 shadow-[0_8px_24px_rgb(15,23,42,0.05)] hover:shadow-[0_12px_30px_rgb(2,132,199,0.12)] transition-[translate,background-color,border-color,box-shadow] duration-200 flex gap-4 items-center cursor-pointer w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600 hover:-translate-y-0.5"
+                className="group text-left bg-white/70 hover:bg-white/90 backdrop-blur-xl p-4 rounded-2xl border border-white/90 hover:border-sky-300/80 shadow-[0_8px_24px_rgb(15,23,42,0.05)] hover:shadow-[0_12px_30px_rgb(2,132,199,0.12)] transition-all duration-200 flex gap-4 items-center cursor-pointer w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600 hover:-translate-y-0.5"
               >
                 <div className="relative w-32 h-24 shrink-0 rounded-xl overflow-hidden bg-slate-900 border border-white/60 shadow-2xs">
-                  <NewsImage
-                    key={article.imageUrl}
+                  <img
                     src={article.imageUrl}
                     alt={article.title}
                     referrerPolicy="no-referrer"
-                    width={256}
-                    height={192}
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     loading="lazy"
-                    decoding="async"
-                    fallbackClassName="text-xl"
+                    onError={(e) => {
+                      e.currentTarget.src =
+                        'https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=800&q=80';
+                    }}
                   />
                 </div>
 
@@ -243,7 +188,7 @@ export const UltimasNoticias: React.FC<UltimasNoticiasProps> = ({
                         <>
                           <span aria-hidden="true">·</span>
                           <span className="inline-flex items-center gap-0.5 text-[#0284c7] font-semibold">
-                            <Paperclip className="w-3 h-3" aria-hidden="true" />
+                            <Paperclip className="w-3 h-3" />
                             {article.attachments.length}
                           </span>
                         </>
@@ -257,17 +202,17 @@ export const UltimasNoticias: React.FC<UltimasNoticiasProps> = ({
 
                   <span className="text-xs font-semibold text-slate-700 group-hover:text-[#0284c7] inline-flex items-center gap-1 mt-2">
                     <span>Ler matéria</span>
-                    <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
+                    <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" />
                   </span>
                 </div>
-              </m.button>
+              </motion.button>
             ))}
           </div>
         </div>
 
         {/* Glassmorphic Institutional & Polos Quick-Access Strip */}
         {onOpenSubpage && (
-          <m.div
+          <motion.div
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, amount: 0.2 }}
@@ -277,10 +222,10 @@ export const UltimasNoticias: React.FC<UltimasNoticiasProps> = ({
             <button
               type="button"
               onClick={() => onOpenSubpage('a-vitalizar', 'sede-polos')}
-              className="group text-left bg-white/70 hover:bg-white/90 backdrop-blur-xl p-6 rounded-2xl border border-white/90 hover:border-sky-300/80 shadow-[0_8px_24px_rgb(15,23,42,0.05)] hover:shadow-[0_14px_32px_rgb(2,132,199,0.12)] transition-[translate,background-color,border-color,box-shadow] flex items-start gap-4 cursor-pointer hover:-translate-y-0.5"
+              className="group text-left bg-white/70 hover:bg-white/90 backdrop-blur-xl p-6 rounded-2xl border border-white/90 hover:border-sky-300/80 shadow-[0_8px_24px_rgb(15,23,42,0.05)] hover:shadow-[0_14px_32px_rgb(2,132,199,0.12)] transition-all flex items-start gap-4 cursor-pointer hover:-translate-y-0.5"
             >
               <div className="w-12 h-12 rounded-2xl bg-[#061a38] text-[#38bdf8] flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform shadow-md">
-                <MapPin className="w-5 h-5" aria-hidden="true" />
+                <MapPin className="w-5 h-5" />
               </div>
               <div className="space-y-1">
                 <h3 className="font-display text-base font-bold text-slate-900 group-hover:text-[#0284c7] transition-colors">
@@ -295,10 +240,10 @@ export const UltimasNoticias: React.FC<UltimasNoticiasProps> = ({
             <button
               type="button"
               onClick={() => onOpenSubpage('transparencia')}
-              className="group text-left bg-white/70 hover:bg-white/90 backdrop-blur-xl p-6 rounded-2xl border border-white/90 hover:border-sky-300/80 shadow-[0_8px_24px_rgb(15,23,42,0.05)] hover:shadow-[0_14px_32px_rgb(2,132,199,0.12)] transition-[translate,background-color,border-color,box-shadow] flex items-start gap-4 cursor-pointer hover:-translate-y-0.5"
+              className="group text-left bg-white/70 hover:bg-white/90 backdrop-blur-xl p-6 rounded-2xl border border-white/90 hover:border-sky-300/80 shadow-[0_8px_24px_rgb(15,23,42,0.05)] hover:shadow-[0_14px_32px_rgb(2,132,199,0.12)] transition-all flex items-start gap-4 cursor-pointer hover:-translate-y-0.5"
             >
               <div className="w-12 h-12 rounded-2xl bg-[#061a38] text-[#38bdf8] flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform shadow-md">
-                <ShieldCheck className="w-5 h-5" aria-hidden="true" />
+                <ShieldCheck className="w-5 h-5" />
               </div>
               <div className="space-y-1">
                 <h3 className="font-display text-base font-bold text-slate-900 group-hover:text-[#0284c7] transition-colors">
@@ -313,10 +258,10 @@ export const UltimasNoticias: React.FC<UltimasNoticiasProps> = ({
             <button
               type="button"
               onClick={() => onOpenSubpage('contato')}
-              className="group text-left bg-white/70 hover:bg-white/90 backdrop-blur-xl p-6 rounded-2xl border border-white/90 hover:border-sky-300/80 shadow-[0_8px_24px_rgb(15,23,42,0.05)] hover:shadow-[0_14px_32px_rgb(2,132,199,0.12)] transition-[translate,background-color,border-color,box-shadow] flex items-start gap-4 cursor-pointer hover:-translate-y-0.5"
+              className="group text-left bg-white/70 hover:bg-white/90 backdrop-blur-xl p-6 rounded-2xl border border-white/90 hover:border-sky-300/80 shadow-[0_8px_24px_rgb(15,23,42,0.05)] hover:shadow-[0_14px_32px_rgb(2,132,199,0.12)] transition-all flex items-start gap-4 cursor-pointer hover:-translate-y-0.5"
             >
               <div className="w-12 h-12 rounded-2xl bg-[#061a38] text-[#38bdf8] flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform shadow-md">
-                <MessageSquare className="w-5 h-5" aria-hidden="true" />
+                <MessageSquare className="w-5 h-5" />
               </div>
               <div className="space-y-1">
                 <h3 className="font-display text-base font-bold text-slate-900 group-hover:text-[#0284c7] transition-colors">
@@ -327,7 +272,7 @@ export const UltimasNoticias: React.FC<UltimasNoticiasProps> = ({
                 </p>
               </div>
             </button>
-          </m.div>
+          </motion.div>
         )}
       </div>
 
@@ -335,14 +280,11 @@ export const UltimasNoticias: React.FC<UltimasNoticiasProps> = ({
       {selectedArticle && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/65 backdrop-blur-md"
+          role="dialog"
+          aria-modal="true"
+          aria-label={selectedArticle.title}
         >
-          <div
-            ref={dialogRef}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby={dialogTitleId}
-            className="bg-white/90 backdrop-blur-2xl rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto overscroll-contain shadow-2xl border border-white/80 text-slate-800"
-          >
+          <div className="bg-white/90 backdrop-blur-2xl rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-white/80 text-slate-800">
             <div className="sticky top-0 bg-white/85 backdrop-blur-xl px-6 py-4 flex items-center justify-between border-b border-slate-200/80 z-10">
               <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
                 <span className="text-[#0284c7] font-semibold">{selectedArticle.category}</span>
@@ -353,31 +295,23 @@ export const UltimasNoticias: React.FC<UltimasNoticiasProps> = ({
                 type="button"
                 onClick={() => setSelectedArticle(null)}
                 className="p-1.5 text-slate-500 hover:text-slate-900 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
-                aria-label="Fechar"
+                aria-label="Fechar notícia"
               >
-                <X className="w-5 h-5" aria-hidden="true" />
+                <X className="w-5 h-5" />
               </button>
             </div>
 
             <div className="relative aspect-16/9 bg-slate-100">
-              <NewsImage
-                key={selectedArticle.imageUrl}
+              <img
                 src={selectedArticle.imageUrl}
                 alt={selectedArticle.title}
                 referrerPolicy="no-referrer"
-                width={1000}
-                height={563}
-                decoding="async"
                 className="w-full h-full object-cover"
-                fallbackClassName="text-5xl"
               />
             </div>
 
             <div className="p-6 sm:p-8 space-y-4">
-              <h2
-                id={dialogTitleId}
-                className="font-display text-xl sm:text-2xl font-extrabold text-slate-900 leading-tight"
-              >
+              <h2 className="font-display text-xl sm:text-2xl font-extrabold text-slate-900 leading-tight">
                 {selectedArticle.title}
               </h2>
 
@@ -395,7 +329,7 @@ export const UltimasNoticias: React.FC<UltimasNoticiasProps> = ({
               {selectedArticle.attachments && selectedArticle.attachments.length > 0 && (
                 <div className="pt-4 border-t border-slate-200 space-y-2.5">
                   <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
-                    <Paperclip className="w-3.5 h-3.5 text-[#0284c7]" aria-hidden="true" />
+                    <Paperclip className="w-3.5 h-3.5 text-[#0284c7]" />
                     <span>Arquivos e Documentos Anexados ({selectedArticle.attachments.length})</span>
                   </h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -410,7 +344,7 @@ export const UltimasNoticias: React.FC<UltimasNoticiasProps> = ({
                       >
                         <div className="flex items-center gap-2.5 min-w-0">
                           <div className="w-8 h-8 rounded-lg bg-[#061a38] text-[#38bdf8] flex items-center justify-center shrink-0">
-                            <FileText className="w-4 h-4" aria-hidden="true" />
+                            <FileText className="w-4 h-4" />
                           </div>
                           <div className="min-w-0">
                             <span className="text-xs font-bold text-slate-800 group-hover:text-[#0284c7] truncate block">
@@ -421,7 +355,7 @@ export const UltimasNoticias: React.FC<UltimasNoticiasProps> = ({
                             </span>
                           </div>
                         </div>
-                        <Download className="w-4 h-4 text-slate-400 group-hover:text-[#0284c7] shrink-0" aria-hidden="true" />
+                        <Download className="w-4 h-4 text-slate-400 group-hover:text-[#0284c7] shrink-0" />
                       </a>
                     ))}
                   </div>
@@ -429,7 +363,7 @@ export const UltimasNoticias: React.FC<UltimasNoticiasProps> = ({
               )}
 
               <div className="pt-6 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500">
-                <span>{selectedArticle.author ? `Por ${selectedArticle.author}` : ''}</span>
+                <span>Por {selectedArticle.author}</span>
                 <button
                   type="button"
                   onClick={() => setSelectedArticle(null)}

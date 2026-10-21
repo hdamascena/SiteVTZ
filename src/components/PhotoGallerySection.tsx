@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { m } from 'motion/react';
+import { motion } from 'motion/react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -12,7 +12,6 @@ import {
 } from 'lucide-react';
 import { useClubData, INITIAL_GALLERY_ALBUMS } from '../context/ClubDataContext.tsx';
 import type { PastEventPhoto } from '../types/index.ts';
-import { useDialog } from '../hooks/useDialog.ts';
 
 export type { PastEventPhoto };
 export const PAST_EVENTS_GALLERY: PastEventPhoto[] = INITIAL_GALLERY_ALBUMS;
@@ -34,10 +33,7 @@ export const PhotoGallerySection: React.FC = () => {
     'Inclusão & Comunidade',
   ];
 
-  // Exibe exatamente o que está publicado no painel (sem voltar aos álbuns de exemplo quando a lista fica vazia)
-  const albumsSource = (galleryAlbums || []).filter(
-    (album) => Array.isArray(album.albumPhotos) && album.albumPhotos.length > 0
-  );
+  const albumsSource = galleryAlbums && galleryAlbums.length > 0 ? galleryAlbums : INITIAL_GALLERY_ALBUMS;
 
   const filteredAlbums =
     selectedCategory === 'Todos'
@@ -69,18 +65,16 @@ export const PhotoGallerySection: React.FC = () => {
     setIsZoomed(false);
   }, [activeAlbum]);
 
-  // Esc, foco preso/restaurado e trava de rolagem ficam a cargo do useDialog
-  const lightboxRef = useDialog(activeAlbum !== null, closeLightbox);
-
   useEffect(() => {
     if (!activeAlbum) return;
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeLightbox();
       if (e.key === 'ArrowRight') nextPhoto();
       if (e.key === 'ArrowLeft') prevPhoto();
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeAlbum, nextPhoto, prevPhoto]);
+  }, [activeAlbum, closeLightbox, nextPhoto, prevPhoto]);
 
   const currentPhoto = activeAlbum?.albumPhotos[photoIndex];
 
@@ -91,7 +85,7 @@ export const PhotoGallerySection: React.FC = () => {
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header & Segmented Filter Control */}
-        <m.div
+        <motion.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, amount: 0.25 }}
@@ -100,7 +94,7 @@ export const PhotoGallerySection: React.FC = () => {
         >
           <div>
             <p className="text-xs font-semibold text-[#38bdf8] tracking-wide flex items-center gap-2">
-              <Camera className="w-3.5 h-3.5" aria-hidden="true" />
+              <Camera className="w-3.5 h-3.5" />
               <span>Memória Esportiva · Cariacica/ES</span>
             </p>
             <h2 className="font-display text-2xl sm:text-3xl font-extrabold text-white tracking-tight mt-1">
@@ -114,7 +108,7 @@ export const PhotoGallerySection: React.FC = () => {
           {/* Interactive Filter Tabs */}
           <div
             className="inline-flex flex-wrap items-center gap-1 p-1.5 bg-white/10 backdrop-blur-xs rounded-xl border border-white/15 self-start"
-            role="group"
+            role="tablist"
             aria-label="Filtrar galeria por categoria"
           >
             {categories.map((cat) => {
@@ -123,9 +117,10 @@ export const PhotoGallerySection: React.FC = () => {
                 <button
                   key={cat}
                   type="button"
-                  aria-pressed={active}
+                  role="tab"
+                  aria-selected={active}
                   onClick={() => setSelectedCategory(cat)}
-                  className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-[color,background-color,box-shadow] cursor-pointer whitespace-nowrap shrink-0 ${
+                  className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                     active
                       ? 'bg-[#0284c7] text-white shadow-sm'
                       : 'text-sky-100/80 hover:text-white'
@@ -136,17 +131,12 @@ export const PhotoGallerySection: React.FC = () => {
               );
             })}
           </div>
-        </m.div>
+        </motion.div>
 
         {/* Rich 4-Column Photo Album Grid with Staggered Scroll Reveal */}
-        {filteredAlbums.length === 0 && (
-          <p className="text-sm text-slate-500 text-center py-10">
-            Nenhum álbum publicado nesta categoria.
-          </p>
-        )}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
           {filteredAlbums.map((album, idx) => (
-            <m.div
+            <motion.div
               key={album.id}
               initial={{ opacity: 0, y: 24 }}
               whileInView={{ opacity: 1, y: 0 }}
@@ -157,43 +147,41 @@ export const PhotoGallerySection: React.FC = () => {
                 ease: EASE_EDITORIAL,
               }}
               onClick={() => openLightbox(album, 0)}
-              className="group text-left bg-[#0b2548]/85 backdrop-blur-xl rounded-2xl overflow-hidden border border-sky-400/20 hover:border-[#38bdf8]/60 shadow-lg hover:shadow-2xl transition-[translate,border-color,box-shadow] duration-300 flex flex-col justify-between has-[.album-cover:focus-visible]:ring-2 has-[.album-cover:focus-visible]:ring-sky-400 cursor-pointer hover:-translate-y-1"
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  openLightbox(album, 0);
+                }
+              }}
+              aria-label={`Abrir álbum: ${album.title}`}
+              className="group text-left bg-[#0b2548]/85 backdrop-blur-xl rounded-2xl overflow-hidden border border-sky-400/20 hover:border-[#38bdf8]/60 shadow-lg hover:shadow-2xl transition-all duration-300 flex flex-col justify-between focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 cursor-pointer hover:-translate-y-1"
             >
               <div>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    openLightbox(album, 0);
-                  }}
-                  aria-label={`Abrir álbum: ${album.title}`}
-                  className="album-cover relative block aspect-4/3 w-full overflow-hidden bg-slate-900 cursor-pointer focus-visible:outline-none"
-                >
+                <div className="relative aspect-4/3 w-full overflow-hidden bg-slate-900">
                   <img
                     src={album.coverUrl}
                     alt={album.title}
                     referrerPolicy="no-referrer"
-                    width={640}
-                    height={480}
                     className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                     loading="lazy"
-                    decoding="async"
                   />
-                  <span className="absolute inset-0 bg-gradient-to-t from-[#041226] via-transparent to-transparent opacity-85" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-[#041226] via-transparent to-transparent opacity-85" />
 
-                  <span className="absolute inset-0 bg-sky-950/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                    <span className="w-11 h-11 rounded-full bg-[#0284c7] text-white flex items-center justify-center shadow-lg transform scale-95 group-hover:scale-100 transition-transform">
-                      <Maximize2 className="w-5 h-5" aria-hidden="true" />
-                    </span>
-                  </span>
+                  <div className="absolute inset-0 bg-sky-950/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                    <div className="w-11 h-11 rounded-full bg-[#0284c7] text-white flex items-center justify-center shadow-lg transform scale-95 group-hover:scale-100 transition-transform">
+                      <Maximize2 className="w-5 h-5" />
+                    </div>
+                  </div>
 
-                  <span className="absolute bottom-3 left-3.5 right-3.5 flex items-center justify-between text-xs text-sky-200 font-medium">
+                  <div className="absolute bottom-3 left-3.5 right-3.5 flex items-center justify-between text-xs text-sky-200 font-medium">
                     <span>{album.category}</span>
                     <span className="tabular-nums font-bold text-white">
                       {album.albumPhotos.length} fotos
                     </span>
-                  </span>
-                </button>
+                  </div>
+                </div>
 
                 <div className="p-5 pb-3">
                   <div className="text-xs text-[#38bdf8] font-medium">
@@ -214,36 +202,31 @@ export const PhotoGallerySection: React.FC = () => {
               <div className="px-5 pb-5 pt-3 border-t border-white/10 space-y-3">
                 <div className="grid grid-cols-3 gap-2">
                   {album.albumPhotos.slice(0, 3).map((photo, pIdx) => (
-                    <button
+                    <div
                       key={pIdx}
-                      type="button"
                       onClick={(e) => {
                         e.stopPropagation();
                         openLightbox(album, pIdx);
                       }}
-                      aria-label={`Abrir foto ${pIdx + 1} do álbum ${album.title}`}
-                      className="block w-full aspect-16/10 rounded-lg overflow-hidden border border-white/15 hover:border-[#38bdf8] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                      className="aspect-16/10 rounded-lg overflow-hidden border border-white/15 hover:border-[#38bdf8] transition-colors"
                     >
                       <img
                         src={photo.url}
                         alt=""
                         referrerPolicy="no-referrer"
-                        width={320}
-                        height={200}
                         className="w-full h-full object-cover"
                         loading="lazy"
-                        decoding="async"
                       />
-                    </button>
+                    </div>
                   ))}
                 </div>
 
                 <div className="flex items-center justify-between text-xs font-semibold text-[#38bdf8]">
                   <span>Abrir álbum em tela cheia</span>
-                  <ArrowUpRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" aria-hidden="true" />
+                  <ArrowUpRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
                 </div>
               </div>
-            </m.div>
+            </motion.div>
           ))}
         </div>
       </div>
@@ -251,7 +234,6 @@ export const PhotoGallerySection: React.FC = () => {
       {/* Fullscreen Lightbox Modal */}
       {activeAlbum && currentPhoto && (
         <div
-          ref={lightboxRef}
           className="fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-md flex flex-col justify-between"
           role="dialog"
           aria-modal="true"
@@ -280,7 +262,7 @@ export const PhotoGallerySection: React.FC = () => {
                 aria-label={isZoomed ? 'Reduzir zoom' : 'Ampliar imagem'}
                 title={isZoomed ? 'Reduzir zoom' : 'Ampliar imagem'}
               >
-                {isZoomed ? <ZoomOut className="w-5 h-5" aria-hidden="true" /> : <ZoomIn className="w-5 h-5" aria-hidden="true" />}
+                {isZoomed ? <ZoomOut className="w-5 h-5" /> : <ZoomIn className="w-5 h-5" />}
               </button>
               <button
                 type="button"
@@ -288,7 +270,7 @@ export const PhotoGallerySection: React.FC = () => {
                 className="p-2.5 rounded-lg bg-slate-800/80 hover:bg-rose-600 text-white transition-colors cursor-pointer"
                 aria-label="Fechar galeria em tela cheia"
               >
-                <X className="w-5 h-5" aria-hidden="true" />
+                <X className="w-5 h-5" />
               </button>
             </div>
           </div>
@@ -302,7 +284,7 @@ export const PhotoGallerySection: React.FC = () => {
                 className="absolute left-3 sm:left-6 z-20 p-3 rounded-full bg-slate-900/80 hover:bg-[#0284c7] text-white border border-slate-700 shadow-xl transition-colors cursor-pointer"
                 aria-label="Foto anterior"
               >
-                <ChevronLeft className="w-6 h-6" aria-hidden="true" />
+                <ChevronLeft className="w-6 h-6" />
               </button>
             )}
 
@@ -313,10 +295,7 @@ export const PhotoGallerySection: React.FC = () => {
                   alt={currentPhoto.caption}
                   referrerPolicy="no-referrer"
                   onClick={() => setIsZoomed(!isZoomed)}
-                  width={1200}
-                  height={800}
-                  decoding="async"
-                  className={`w-auto h-auto max-h-[62vh] max-w-full object-contain rounded-lg transition-transform duration-200 cursor-zoom-in ${
+                  className={`max-h-[62vh] max-w-full object-contain rounded-lg transition-transform duration-200 cursor-zoom-in ${
                     isZoomed ? 'scale-125 cursor-zoom-out' : 'scale-100'
                   }`}
                 />
@@ -339,7 +318,7 @@ export const PhotoGallerySection: React.FC = () => {
                 className="absolute right-3 sm:right-6 z-20 p-3 rounded-full bg-slate-900/80 hover:bg-[#0284c7] text-white border border-slate-700 shadow-xl transition-colors cursor-pointer"
                 aria-label="Próxima foto"
               >
-                <ChevronRight className="w-6 h-6" aria-hidden="true" />
+                <ChevronRight className="w-6 h-6" />
               </button>
             )}
           </div>
@@ -354,22 +333,17 @@ export const PhotoGallerySection: React.FC = () => {
                   setPhotoIndex(index);
                   setIsZoomed(false);
                 }}
-                className={`relative w-16 h-12 sm:w-20 sm:h-14 rounded-lg overflow-hidden border-2 transition-[border-color,opacity] shrink-0 cursor-pointer ${
+                className={`relative w-16 h-12 sm:w-20 sm:h-14 rounded-lg overflow-hidden border-2 transition-all shrink-0 cursor-pointer ${
                   photoIndex === index
                     ? 'border-[#38bdf8] opacity-100'
                     : 'border-transparent opacity-50 hover:opacity-90'
                 }`}
                 aria-label={`Ver foto ${index + 1}`}
-                aria-current={photoIndex === index ? 'true' : undefined}
               >
                 <img
                   src={photo.url}
                   alt=""
                   referrerPolicy="no-referrer"
-                  width={160}
-                  height={112}
-                  loading="lazy"
-                  decoding="async"
                   className="w-full h-full object-cover"
                 />
               </button>

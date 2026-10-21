@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { m } from 'motion/react';
+import { motion } from 'motion/react';
 import {
   Calendar as CalendarIcon,
   Clock,
@@ -21,22 +21,17 @@ import {
 } from 'lucide-react';
 import { VitalizarEvent, EventCategory } from '../types/index.ts';
 import { useClubData } from '../context/ClubDataContext.tsx';
-import { useDialog } from '../hooks/useDialog.ts';
 import {
   filterEvents,
   sortEventsByDate,
   validateEventRSVP,
   generateGoogleCalendarUrl,
-  isEventClosed,
-  isEventPast,
 } from '../utils/eventFilter.ts';
 
 interface EventsCalendarProps {
   onOpenInscricoes?: () => void;
   className?: string;
   initialCategory?: EventCategory | 'all';
-  /** Abre o evento com este id (link compartilhado #/eventos/<id>) */
-  initialEventId?: string;
 }
 
 const EASE_EDITORIAL: [number, number, number, number] = [0.16, 1, 0.3, 1];
@@ -45,36 +40,18 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
   onOpenInscricoes,
   className = '',
   initialCategory = 'all',
-  initialEventId,
 }) => {
   const { events, addRsvp, showToast } = useClubData();
   const [selectedCategory, setSelectedCategory] = useState<EventCategory | 'all'>(initialCategory);
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'agenda'>('grid');
-  const [selectedEventSnapshot, setSelectedEvent] = useState<VitalizarEvent | null>(null);
-  // Sempre lê a versão atual do evento (vagas/status mudam após inscrições ou edições no painel)
-  const selectedEvent = selectedEventSnapshot
-    ? events.find((ev) => ev.id === selectedEventSnapshot.id) ?? selectedEventSnapshot
-    : null;
-
-  const dialogRef = useDialog(selectedEvent !== null, () => setSelectedEvent(null));
-  const dialogTitleId = React.useId();
-  const nameInputId = React.useId();
-  const phoneInputId = React.useId();
-  const spotsSelectId = React.useId();
+  const [selectedEvent, setSelectedEvent] = useState<VitalizarEvent | null>(null);
 
   useEffect(() => {
     if (initialCategory) {
       setSelectedCategory(initialCategory);
     }
   }, [initialCategory]);
-
-  // Link compartilhado: abre o evento assim que ele estiver disponível (dados podem chegar do Firestore depois)
-  useEffect(() => {
-    if (!initialEventId) return;
-    const found = events.find((ev) => ev.id === initialEventId);
-    if (found) setSelectedEvent(found);
-  }, [initialEventId, events]);
 
   // RSVP Modal State
   const [rsvpSpots, setRsvpSpots] = useState(1);
@@ -128,26 +105,11 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
 
   const handleCopyLink = () => {
     if (!selectedEvent) return;
-    const url = `${window.location.origin}${window.location.pathname}#/eventos/${encodeURIComponent(selectedEvent.id)}`;
-    const onCopyFailed = () => showToast('Não foi possível copiar o link.');
-    try {
-      if (!navigator.clipboard?.writeText) throw new Error('Clipboard indisponível');
-      navigator.clipboard
-        .writeText(url)
-        .then(() => {
-          setCopiedLink(true);
-          setTimeout(() => setCopiedLink(false), 2500);
-        })
-        .catch(onCopyFailed);
-    } catch {
-      onCopyFailed();
-    }
-  };
-
-  const getClosedLabel = (event: VitalizarEvent) => {
-    if (isEventPast(event)) return 'Encerrado';
-    if (event.availableSpots <= 0) return 'Lotado';
-    return 'Em breve';
+    navigator.clipboard.writeText(
+      `${window.location.origin}/#eventos-${selectedEvent.id}`
+    );
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2500);
   };
 
   const getCategoryText = (category: EventCategory) => {
@@ -185,7 +147,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
 
       <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Section Header */}
-        <m.div
+        <motion.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, amount: 0.25 }}
@@ -210,35 +172,33 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
               <button
                 type="button"
                 onClick={() => setViewMode('grid')}
-                aria-pressed={viewMode === 'grid'}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-[color,background-color,box-shadow] inline-flex items-center gap-1.5 cursor-pointer ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all inline-flex items-center gap-1.5 cursor-pointer ${
                   viewMode === 'grid'
                     ? 'bg-[#061a38] text-white shadow-2xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                <LayoutGrid className="w-3.5 h-3.5" aria-hidden="true" />
+                <LayoutGrid className="w-3.5 h-3.5" />
                 <span>Cards</span>
               </button>
               <button
                 type="button"
                 onClick={() => setViewMode('agenda')}
-                aria-pressed={viewMode === 'agenda'}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-[color,background-color,box-shadow] inline-flex items-center gap-1.5 cursor-pointer ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all inline-flex items-center gap-1.5 cursor-pointer ${
                   viewMode === 'agenda'
                     ? 'bg-[#061a38] text-white shadow-2xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                <List className="w-3.5 h-3.5" aria-hidden="true" />
+                <List className="w-3.5 h-3.5" />
                 <span>Lista</span>
               </button>
             </div>
           </div>
-        </m.div>
+        </motion.div>
 
         {/* Glassmorphic Filter & Search Toolbar */}
-        <m.div
+        <motion.div
           initial={{ opacity: 0, y: 16 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, amount: 0.25 }}
@@ -247,7 +207,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
         >
           <div
             className="inline-flex flex-wrap items-center gap-1.5"
-            role="group"
+            role="tablist"
             aria-label="Filtrar eventos por categoria"
           >
             {categoryTabs.map((tab) => {
@@ -256,9 +216,10 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                 <button
                   key={tab.id}
                   type="button"
-                  aria-pressed={isActive}
+                  role="tab"
+                  aria-selected={isActive}
                   onClick={() => setSelectedCategory(tab.id as EventCategory | 'all')}
-                  className={`px-4 py-2 rounded-xl text-xs font-semibold transition-[color,background-color,box-shadow] cursor-pointer whitespace-nowrap shrink-0 ${
+                  className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                     isActive
                       ? 'bg-[#0284c7] text-white shadow-sm shadow-sky-500/25'
                       : 'bg-white/75 hover:bg-white text-slate-600 hover:text-slate-900 border border-slate-200/70'
@@ -271,14 +232,12 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
           </div>
 
           <div className="relative w-full md:w-72">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" aria-hidden="true" />
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              name="busca-eventos"
-              autoComplete="off"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Buscar por modalidade ou local…"
+              placeholder="Buscar por modalidade ou local..."
               aria-label="Buscar evento por nome ou local"
               className="w-full text-xs pl-9 pr-8 py-2.5 bg-white/80 backdrop-blur-md border border-slate-200/80 rounded-xl focus:ring-2 focus:ring-sky-600 focus:outline-none placeholder-slate-400 text-slate-800"
             />
@@ -289,16 +248,16 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                 className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
                 aria-label="Limpar busca"
               >
-                <X className="w-3.5 h-3.5" aria-hidden="true" />
+                <X className="w-3.5 h-3.5" />
               </button>
             )}
           </div>
-        </m.div>
+        </motion.div>
 
         {/* Events Display */}
         {filteredEvents.length === 0 ? (
           <div className="py-14 text-center bg-white/70 backdrop-blur-xl border border-white/90 rounded-2xl space-y-3 shadow-sm">
-            <CalendarIcon className="w-8 h-8 text-slate-300 mx-auto" aria-hidden="true" />
+            <CalendarIcon className="w-8 h-8 text-slate-300 mx-auto" />
             <h3 className="text-sm font-bold text-slate-800">
               Nenhum evento encontrado para o filtro selecionado
             </h3>
@@ -319,18 +278,15 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
         ) : viewMode === 'grid' ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredEvents.map((event, idx) => {
-              const isFull = isEventClosed(event);
+              const isFull = event.availableSpots === 0;
               const isFeatured = idx === 0;
-              const occupancyPercent = Math.max(
-                0,
-                Math.min(
-                  100,
-                  Math.round(((event.capacity - event.availableSpots) / (event.capacity || 1)) * 100)
-                )
+              const occupancyPercent = Math.min(
+                100,
+                Math.round(((event.capacity - event.availableSpots) / event.capacity) * 100)
               );
 
               return (
-                <m.button
+                <motion.button
                   key={event.id}
                   type="button"
                   initial={{ opacity: 0, y: 24 }}
@@ -342,7 +298,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                     ease: EASE_EDITORIAL,
                   }}
                   onClick={() => openEventDetails(event)}
-                  className={`group relative text-left rounded-2xl backdrop-blur-xl transition-[translate,background-color,border-color,box-shadow] duration-300 flex flex-col justify-between overflow-hidden cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600 hover:-translate-y-1 ${
+                  className={`group relative text-left rounded-2xl backdrop-blur-xl transition-all duration-300 flex flex-col justify-between overflow-hidden cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600 hover:-translate-y-1 ${
                     isFeatured
                       ? 'bg-gradient-to-br from-[#061a38]/92 via-[#092752]/90 to-[#041226]/95 text-white border border-sky-400/40 shadow-[0_16px_40px_rgba(2,132,199,0.18)]'
                       : 'bg-white/75 hover:bg-white/90 text-slate-900 border border-white/90 hover:border-sky-300/80 shadow-[0_8px_30px_rgb(15,23,42,0.06)] hover:shadow-[0_16px_36px_rgb(2,132,199,0.12)]'
@@ -386,7 +342,6 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                             }`}
                           >
                             <Clock
-                              aria-hidden="true"
                               className={`w-3.5 h-3.5 ${
                                 isFeatured ? 'text-sky-300' : 'text-slate-400'
                               }`}
@@ -432,7 +387,6 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                     >
                       <div className="flex items-center gap-1.5">
                         <MapPin
-                          aria-hidden="true"
                           className={`w-3.5 h-3.5 shrink-0 ${
                             isFeatured ? 'text-[#38bdf8]' : 'text-[#0284c7]'
                           }`}
@@ -444,7 +398,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                           isFeatured ? 'text-sky-200/75' : 'text-slate-500'
                         }`}
                       >
-                        <Users className="w-3.5 h-3.5 text-sky-400 shrink-0" aria-hidden="true" />
+                        <Users className="w-3.5 h-3.5 text-sky-400 shrink-0" />
                         <span className="truncate">{event.targetAudience}</span>
                       </div>
                     </div>
@@ -464,7 +418,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                             isFeatured ? 'text-white' : 'text-slate-800'
                           }`}
                         >
-                          {isFull ? getClosedLabel(event) : `${event.availableSpots} de ${event.capacity}`}
+                          {isFull ? 'Lotado' : `${event.availableSpots} de ${event.capacity}`}
                         </span>
                       </div>
                       <div
@@ -473,7 +427,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                         }`}
                       >
                         <div
-                          className="h-full rounded-full bg-gradient-to-r from-[#0284c7] to-[#38bdf8] transition-[width] duration-300"
+                          className="h-full rounded-full bg-gradient-to-r from-[#0284c7] to-[#38bdf8] transition-all duration-300"
                           style={{ width: `${occupancyPercent}%` }}
                         />
                       </div>
@@ -485,16 +439,16 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                       }`}
                     >
                       <span>{isFull ? 'Consultar detalhes' : 'Confirmar presença gratuita'}</span>
-                      <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" aria-hidden="true" />
+                      <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
                     </div>
                   </div>
-                </m.button>
+                </motion.button>
               );
             })}
           </div>
         ) : (
           /* Glassmorphic Timeline List View */
-          <m.div
+          <motion.div
             initial={{ opacity: 0, y: 18 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, amount: 0.15 }}
@@ -502,7 +456,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
             className="bg-white/75 backdrop-blur-xl border border-white/90 rounded-2xl divide-y divide-slate-200/60 overflow-hidden shadow-[0_8px_30px_rgb(15,23,42,0.05)]"
           >
             {filteredEvents.map((event) => {
-              const isFull = isEventClosed(event);
+              const isFull = event.availableSpots === 0;
               return (
                 <button
                   key={event.id}
@@ -538,21 +492,21 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
 
                   <div className="flex items-center justify-between md:justify-end gap-6 pt-2 md:pt-0 border-t md:border-t-0 border-slate-100">
                     <span className="text-xs font-semibold text-slate-700 tabular-nums">
-                      {isFull ? getClosedLabel(event) : `${event.availableSpots} vagas`}
+                      {isFull ? 'Lotado' : `${event.availableSpots} vagas`}
                     </span>
                     <span className="px-4 py-2 bg-sky-50/90 group-hover:bg-[#0284c7] text-[#0284c7] group-hover:text-white text-xs font-semibold rounded-xl transition-colors inline-flex items-center gap-1">
                       <span>Participar</span>
-                      <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
+                      <ArrowRight className="w-3.5 h-3.5" />
                     </span>
                   </div>
                 </button>
               );
             })}
-          </m.div>
+          </motion.div>
         )}
 
         {/* Glassmorphic Community Callout Banner */}
-        <m.div
+        <motion.div
           initial={{ opacity: 0, y: 22 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, amount: 0.2 }}
@@ -572,10 +526,6 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                 <img
                   src="/logo.png"
                   alt="Brasão Associação Esportiva Vitalizar"
-                  width={56}
-                  height={56}
-                  loading="lazy"
-                  decoding="async"
                   className="w-14 h-14 object-contain drop-shadow-md"
                 />
               </div>
@@ -596,28 +546,25 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
               <button
                 type="button"
                 onClick={onOpenInscricoes}
-                className="px-6 py-3.5 bg-[#0284c7]/90 hover:bg-[#0ea5e9] backdrop-blur-md border border-sky-300/40 text-white font-semibold text-xs sm:text-sm rounded-xl shadow-lg transition-colors cursor-pointer whitespace-nowrap shrink-0 inline-flex items-center gap-2"
+                className="px-6 py-3.5 bg-[#0284c7]/90 hover:bg-[#0ea5e9] backdrop-blur-md border border-sky-300/40 text-white font-semibold text-xs sm:text-sm rounded-xl shadow-lg transition-all cursor-pointer whitespace-nowrap shrink-0 inline-flex items-center gap-2"
               >
                 <span>Fazer Pré-Inscrição Gratuita</span>
-                <ArrowRight className="w-4 h-4" aria-hidden="true" />
+                <ArrowRight className="w-4 h-4" />
               </button>
             )}
           </div>
-        </m.div>
+        </motion.div>
       </div>
 
       {/* Glassmorphic Event Detail & RSVP Modal */}
       {selectedEvent && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/65 backdrop-blur-md"
+          role="dialog"
+          aria-modal="true"
+          aria-label={selectedEvent.title}
         >
-          <div
-            ref={dialogRef}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby={dialogTitleId}
-            className="bg-white/90 backdrop-blur-2xl rounded-2xl max-w-xl w-full max-h-[90vh] overflow-y-auto overscroll-contain shadow-2xl border border-white/80 text-slate-800"
-          >
+          <div className="bg-white/90 backdrop-blur-2xl rounded-2xl max-w-xl w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-white/80 text-slate-800">
             <div className="sticky top-0 z-10 bg-[#061a38]/95 backdrop-blur-xl text-white px-6 py-4 flex items-center justify-between border-b border-sky-900/80">
               <div className="flex items-center gap-2 text-xs text-sky-200 font-medium">
                 <span className="text-[#38bdf8] font-semibold">
@@ -631,18 +578,15 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                 type="button"
                 onClick={closeEventDetails}
                 className="p-1.5 text-sky-200 hover:text-white rounded-lg hover:bg-white/10 transition-colors cursor-pointer"
-                aria-label="Fechar"
+                aria-label="Fechar detalhes do evento"
               >
-                <X className="w-5 h-5" aria-hidden="true" />
+                <X className="w-5 h-5" />
               </button>
             </div>
 
             <div className="p-6 space-y-6">
               <div>
-                <h2
-                  id={dialogTitleId}
-                  className="font-display text-xl sm:text-2xl font-extrabold text-slate-900 leading-tight"
-                >
+                <h2 className="font-display text-xl sm:text-2xl font-extrabold text-slate-900 leading-tight">
                   {selectedEvent.title}
                 </h2>
                 <p className="mt-2 text-sm text-slate-600 leading-relaxed">
@@ -652,7 +596,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 bg-white/75 backdrop-blur-md rounded-xl border border-slate-200/80 text-xs">
                 <div className="flex items-start gap-2.5">
-                  <Clock className="w-4 h-4 text-[#0284c7] shrink-0 mt-0.5" aria-hidden="true" />
+                  <Clock className="w-4 h-4 text-[#0284c7] shrink-0 mt-0.5" />
                   <div>
                     <span className="font-semibold text-slate-900 block">Horário</span>
                     <span className="text-slate-600">{selectedEvent.time}</span>
@@ -660,7 +604,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                 </div>
 
                 <div className="flex items-start gap-2.5">
-                  <Users className="w-4 h-4 text-[#0284c7] shrink-0 mt-0.5" aria-hidden="true" />
+                  <Users className="w-4 h-4 text-[#0284c7] shrink-0 mt-0.5" />
                   <div>
                     <span className="font-semibold text-slate-900 block">Público-Alvo</span>
                     <span className="text-slate-600">{selectedEvent.targetAudience}</span>
@@ -669,7 +613,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
 
                 <div className="sm:col-span-2 flex items-start justify-between gap-2.5 pt-2 border-t border-slate-200/80">
                   <div className="flex items-start gap-2.5">
-                    <MapPin className="w-4 h-4 text-[#0284c7] shrink-0 mt-0.5" aria-hidden="true" />
+                    <MapPin className="w-4 h-4 text-[#0284c7] shrink-0 mt-0.5" />
                     <div>
                       <span className="font-semibold text-slate-900 block">
                         {selectedEvent.location}
@@ -686,7 +630,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                     className="inline-flex items-center gap-1 text-xs font-semibold text-[#0284c7] hover:underline shrink-0"
                   >
                     <span>Mapa</span>
-                    <ExternalLink className="w-3 h-3" aria-hidden="true" />
+                    <ExternalLink className="w-3 h-3" />
                   </a>
                 </div>
               </div>
@@ -727,7 +671,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
               {selectedEvent.attachments && selectedEvent.attachments.length > 0 && (
                 <div className="p-4 bg-white/80 rounded-xl border border-slate-200/80 space-y-2.5">
                   <span className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
-                    <Paperclip className="w-3.5 h-3.5 text-[#0284c7]" aria-hidden="true" />
+                    <Paperclip className="w-3.5 h-3.5 text-[#0284c7]" />
                     <span>Materiais e Anexos do Evento ({selectedEvent.attachments.length})</span>
                   </span>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -741,7 +685,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                         className="p-2.5 bg-slate-50 hover:bg-sky-50 border border-slate-200 hover:border-sky-300 rounded-lg flex items-center justify-between gap-2 transition-colors group"
                       >
                         <div className="flex items-center gap-2 min-w-0">
-                          <FileText className="w-4 h-4 text-[#0284c7] shrink-0" aria-hidden="true" />
+                          <FileText className="w-4 h-4 text-[#0284c7] shrink-0" />
                           <div className="min-w-0">
                             <span className="text-xs font-semibold text-slate-800 group-hover:text-[#0284c7] truncate block">
                               {att.name}
@@ -751,7 +695,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                             </span>
                           </div>
                         </div>
-                        <Download className="w-3.5 h-3.5 text-slate-400 group-hover:text-[#0284c7] shrink-0" aria-hidden="true" />
+                        <Download className="w-3.5 h-3.5 text-slate-400 group-hover:text-[#0284c7] shrink-0" />
                       </a>
                     ))}
                   </div>
@@ -769,15 +713,15 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                     </p>
                   </div>
                   <span className="text-xs font-semibold text-[#0284c7] tabular-nums">
-                    {!isEventClosed(selectedEvent)
+                    {selectedEvent.availableSpots > 0
                       ? `${selectedEvent.availableSpots} vagas restantes`
-                      : getClosedLabel(selectedEvent)}
+                      : 'Lotado'}
                   </span>
                 </div>
 
                 {rsvpConfirmed ? (
                   <div className="py-4 text-center space-y-2">
-                    <CheckCircle2 className="w-8 h-8 text-[#0284c7] mx-auto" aria-hidden="true" />
+                    <CheckCircle2 className="w-8 h-8 text-[#0284c7] mx-auto" />
                     <h4 className="text-sm font-bold text-slate-900">
                       Presença Confirmada!
                     </h4>
@@ -789,28 +733,21 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                       Protocolo: {confirmationCode}
                     </p>
                   </div>
-                ) : isEventClosed(selectedEvent) ? (
+                ) : selectedEvent.availableSpots === 0 ? (
                   <div className="p-4 bg-white rounded-lg text-center text-xs text-slate-600 space-y-1 border border-slate-200">
-                    <AlertCircle className="w-5 h-5 text-slate-400 mx-auto" aria-hidden="true" />
+                    <AlertCircle className="w-5 h-5 text-slate-400 mx-auto" />
                     <p className="font-semibold text-slate-800">
-                      {isEventPast(selectedEvent)
-                        ? 'Esta atividade já foi realizada.'
-                        : selectedEvent.availableSpots <= 0
-                        ? 'Vagas preenchidas para esta atividade.'
-                        : 'Inscrições ainda não abertas para esta atividade.'}
+                      Vagas preenchidas para esta atividade.
                     </p>
                   </div>
                 ) : (
                   <form onSubmit={handleConfirmRsvp} className="space-y-3">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
-                        <label htmlFor={nameInputId} className="block text-xs font-semibold text-slate-700 mb-1">
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
                           Nome Completo *
                         </label>
                         <input
-                          id={nameInputId}
-                          name="name"
-                          autoComplete="name"
                           type="text"
                           required
                           value={participantName}
@@ -821,14 +758,10 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                       </div>
 
                       <div>
-                        <label htmlFor={phoneInputId} className="block text-xs font-semibold text-slate-700 mb-1">
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
                           Telefone / WhatsApp *
                         </label>
                         <input
-                          id={phoneInputId}
-                          name="tel"
-                          autoComplete="tel"
-                          inputMode="tel"
                           type="tel"
                           required
                           value={participantPhone}
@@ -841,10 +774,8 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
 
                     <div className="flex items-center justify-between pt-2">
                       <div className="flex items-center gap-2">
-                        <label htmlFor={spotsSelectId} className="text-xs font-semibold text-slate-700">Vagas:</label>
+                        <label className="text-xs font-semibold text-slate-700">Vagas:</label>
                         <select
-                          id={spotsSelectId}
-                          name="spots"
                           value={rsvpSpots}
                           onChange={(e) => setRsvpSpots(Number(e.target.value))}
                           className="text-xs p-1.5 bg-white border border-slate-300 rounded-lg font-semibold text-slate-800"
@@ -878,7 +809,7 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg transition-colors"
                   >
-                    <CalendarPlus className="w-3.5 h-3.5 text-[#0284c7]" aria-hidden="true" />
+                    <CalendarPlus className="w-3.5 h-3.5 text-[#0284c7]" />
                     <span>Google Agenda</span>
                   </a>
 
@@ -887,8 +818,8 @@ export const EventsCalendar: React.FC<EventsCalendarProps> = ({
                     onClick={handleCopyLink}
                     className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg transition-colors cursor-pointer"
                   >
-                    <Share2 className="w-3.5 h-3.5 text-slate-500" aria-hidden="true" />
-                    <span aria-live="polite">{copiedLink ? 'Copiado!' : 'Compartilhar'}</span>
+                    <Share2 className="w-3.5 h-3.5 text-slate-500" />
+                    <span>{copiedLink ? 'Copiado!' : 'Compartilhar'}</span>
                   </button>
                 </div>
 
