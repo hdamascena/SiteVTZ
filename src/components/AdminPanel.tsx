@@ -54,6 +54,10 @@ import {
 import { useClubData } from '../context/ClubDataContext.tsx';
 import { DEFAULT_SITE_SETTINGS } from '../data/clubeData.ts';
 import { NextFitParticipantsManager } from './NextFitParticipantsManager.tsx';
+import {
+  parseNextFitCsv,
+  convertNextFitRowToParticipant,
+} from '../utils/nextfitCsv.ts';
 import { AttendanceManager } from './AttendanceManager.tsx';
 import { AdminCommunityModules } from './AdminCommunityModules.tsx';
 import {
@@ -5276,6 +5280,41 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
                             <strong>Coordenação:</strong> {proj.coordinator}
                           </div>
                         </div>
+
+                        {/* Preview de Participantes Vinculados ao Projeto */}
+                        <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-200/80 flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <span className="text-[10px] font-black uppercase tracking-wider text-emerald-900 block">
+                              Participantes Vinculados ({(proj.participants || []).length})
+                            </span>
+                            {(proj.participants || []).length > 0 ? (
+                              <p className="text-[11px] text-emerald-800 truncate mt-0.5 font-medium">
+                                {(proj.participants || [])
+                                  .slice(0, 4)
+                                  .map((p) => p.name)
+                                  .join(', ')}
+                                {(proj.participants || []).length > 4
+                                  ? ` +${(proj.participants || []).length - 4}`
+                                  : ''}
+                              </p>
+                            ) : (
+                              <p className="text-[11px] text-slate-500 mt-0.5">
+                                Nenhuma lista associada ainda. Importe um .CSV para vincular.
+                              </p>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setProjectsParticipantFilter(proj.id);
+                              setProjectsSubTab('participantes');
+                            }}
+                            className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-black uppercase tracking-wider shrink-0 cursor-pointer inline-flex items-center gap-1 transition-colors"
+                          >
+                            <FileSpreadsheet className="w-3 h-3" />
+                            <span>Ver / Associar .CSV</span>
+                          </button>
+                        </div>
                       </div>
 
                       <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
@@ -5627,14 +5666,93 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose }) => {
 
                       {/* 2. Vitrine de Atletas / Participantes (Participants) Manager */}
                       <div className="p-4 bg-emerald-50/50 rounded-2xl border border-emerald-200 space-y-3">
-                        <div className="flex items-center justify-between">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                           <div>
                             <span className="font-black text-xs uppercase text-emerald-950 block">
-                              Elenco & Vitrine de Atletas / Participantes ({(editingProject.participants || []).length})
+                              Elenco & Participantes Vinculados ao Projeto ({(editingProject.participants || []).length})
                             </span>
                             <span className="text-[11px] text-slate-500">
-                              Atletas cadastrados aqui aparecem na Vitrine Oficial do projeto e podem receber sondagens de olheiros.
+                              Suba uma planilha .CSV para associar a lista diretamente a este projeto ou cadastre manualmente abaixo.
                             </span>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <label className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-black uppercase tracking-wider cursor-pointer inline-flex items-center gap-1.5 shadow-xs transition-colors">
+                              <FileSpreadsheet className="w-3.5 h-3.5" />
+                              <span>Associar Lista .CSV neste Projeto</span>
+                              <input
+                                type="file"
+                                accept=".csv,text/csv"
+                                className="hidden"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (!file) return;
+                                  const reader = new FileReader();
+                                  reader.onload = (ev) => {
+                                    const text = String(ev.target?.result || '');
+                                    const parsed = parseNextFitCsv(
+                                      text,
+                                      draftProjects,
+                                      editingProject.id || 'temp-proj'
+                                    );
+                                    if (parsed.error || parsed.rows.length === 0) {
+                                      showToast(
+                                        parsed.error || 'Nenhum participante encontrado no CSV.',
+                                        'error'
+                                      );
+                                      return;
+                                    }
+                                    const currentList = [...(editingProject.participants || [])];
+                                    let added = 0;
+                                    let updated = 0;
+                                    parsed.rows.forEach((row, idx) => {
+                                      const existingIdx = currentList.findIndex(
+                                        (p) =>
+                                          p.name.toLowerCase().trim() ===
+                                          row.name.toLowerCase().trim()
+                                      );
+                                      const converted = convertNextFitRowToParticipant(
+                                        row,
+                                        existingIdx >= 0 ? existingIdx : currentList.length + idx,
+                                        existingIdx >= 0 ? currentList[existingIdx] : undefined
+                                      );
+                                      if (existingIdx >= 0) {
+                                        currentList[existingIdx] = converted;
+                                        updated++;
+                                      } else {
+                                        currentList.push(converted);
+                                        added++;
+                                      }
+                                    });
+                                    setEditingProject({
+                                      ...editingProject,
+                                      participants: currentList,
+                                    });
+                                    showToast(
+                                      `Lista .CSV associada ao projeto "${editingProject.name || 'Novo Projeto'}": ${added} novo(s) e ${updated} atualizado(s)!`,
+                                      'success'
+                                    );
+                                  };
+                                  reader.readAsText(file, 'utf-8');
+                                  e.target.value = '';
+                                }}
+                              />
+                            </label>
+                            {!isCreatingProject && editingProject.id && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const targetId = editingProject.id;
+                                  setIsCreatingProject(false);
+                                  setEditingProject(null);
+                                  setProjectsParticipantFilter(targetId);
+                                  setProjectsSubTab('participantes');
+                                }}
+                                className="px-2.5 py-1.5 bg-white hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-lg text-[11px] font-bold cursor-pointer inline-flex items-center gap-1 transition-colors"
+                              >
+                                <Users className="w-3.5 h-3.5" />
+                                <span>Abrir Aba Participantes</span>
+                              </button>
+                            )}
                           </div>
                         </div>
 

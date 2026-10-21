@@ -63,11 +63,12 @@ import {
 } from '../types/index.ts';
 import { EventsCalendar } from './EventsCalendar.tsx';
 import { SponsorsSection } from './SponsorsSection.tsx';
-import { ProjectDetailPage } from './ProjectDetailPage.tsx';
+import { ProjectDetailPage, type ProjectDetailTab } from './ProjectDetailPage.tsx';
 import { PlayerScoutModal } from './PlayerScoutModal.tsx';
 import { DirectEnrollmentModal } from './DirectEnrollmentModal.tsx';
 import { ScoutContactModal } from './ScoutContactModal.tsx';
 import { CommunityHubView, type CommunityHubTab } from './CommunityHubView.tsx';
+import { NextFitParticipantsManager } from './NextFitParticipantsManager.tsx';
 
 interface SubpageViewProps {
   pageId: string;
@@ -91,6 +92,7 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
     facilityPolos,
     addContactMessage,
     addRsvp,
+    saveAdminChanges,
     showToast,
   } = useClubData();
   const polosList =
@@ -125,7 +127,9 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
 
   // Projects & Scouts State
   const [selectedProject, setSelectedProject] = useState<VitalizarProject | null>(null);
-  const [projectTab, setProjectTab] = useState<'funcionamento' | 'equipe' | 'atletas'>('funcionamento');
+  const [projectTab, setProjectTab] = useState<ProjectDetailTab>('funcionamento');
+  const [projectsViewMode, setProjectsViewMode] = useState<'catalogo' | 'participantes'>('catalogo');
+  const [projectsParticipantFilter, setProjectsParticipantFilter] = useState<string>('all');
   const [selectedPlayer, setSelectedPlayer] = useState<ProjectParticipant | null>(null);
   const [activePlayerVideo, setActivePlayerVideo] = useState<PlayerHighlightVideo | null>(null);
   const [scoutModalOpen, setScoutModalOpen] = useState<boolean>(false);
@@ -182,7 +186,10 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
       }
     }
     if (pageId === 'projetos') {
-      if (subId) {
+      if (subId === 'participantes') {
+        setSelectedProject(null);
+        setProjectsViewMode('participantes');
+      } else if (subId) {
         const foundProj = projects.find((p) => p.id === subId);
         if (foundProj) {
           setSelectedProject(foundProj);
@@ -396,11 +403,20 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
   );
 
   const renderProjetos = () => {
+    const totalParticipantsCount = projects.reduce(
+      (acc, p) => acc + (p.participants?.length || 0),
+      0
+    );
+
     if (selectedProject) {
+      const currentLiveProject =
+        projects.find((p) => p.id === selectedProject.id) || selectedProject;
+
       return (
         <div className="space-y-6">
           <ProjectDetailPage
-            project={selectedProject}
+            project={currentLiveProject}
+            initialTab={projectTab}
             onBack={() => {
               setSelectedProject(null);
               window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -417,8 +433,8 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
             isOpen={!!selectedPlayer}
             onClose={() => setSelectedPlayer(null)}
             player={selectedPlayer}
-            shieldUrl={selectedProject?.shieldUrl}
-            projectName={selectedProject?.name}
+            shieldUrl={currentLiveProject?.shieldUrl}
+            projectName={currentLiveProject?.name}
             onOpenScoutContact={(p) => {
               setScoutTargetPlayer(p);
               setScoutModalOpen(true);
@@ -438,7 +454,7 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
               setScoutTargetPlayer(null);
             }}
             player={scoutTargetPlayer}
-            projectName={selectedProject?.name}
+            projectName={currentLiveProject?.name}
           />
         </div>
       );
@@ -447,231 +463,452 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
     return (
       <div className="space-y-8">
         {/* Institutional Section Header */}
-        <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200/90 shadow-xs flex flex-col lg:flex-row lg:items-end justify-between gap-6">
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <span className="px-3 py-1 rounded-full bg-sky-50 border border-sky-200 text-[#0284c7] text-xs font-bold uppercase tracking-wider">
-                Esporte, Educação & Comunidade
-              </span>
-              <span className="text-xs text-slate-400">· Cariacica/ES</span>
-            </div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
-              Projetos, Equipes & Categorias de Base
-            </h1>
-            <p className="text-xs sm:text-sm text-slate-600 max-w-2xl leading-relaxed">
-              Atividades gratuitas para todas as idades com acompanhamento de professores e auxiliares registrados, quadro de vagas abertas e vitrine de atletas para olheiros e observadores técnicos de clubes.
-            </p>
-
-            {/* Quick Metrics */}
-            <div className="flex flex-wrap items-center gap-4 pt-2 text-xs text-slate-600">
-              <span className="flex items-center gap-1.5 font-bold text-slate-900">
-                <Shield className="w-4 h-4 text-[#0284c7]" />
-                <span>{projects.length} Projetos Ativos</span>
-              </span>
-              <span aria-hidden="true" className="text-slate-300">·</span>
-              <span className="flex items-center gap-1.5 font-bold text-emerald-700">
-                <Users className="w-4 h-4 text-emerald-600" />
-                <span>
-                  {projects.reduce((acc, p) => acc + (p.availableSpots ?? 15), 0)} Vagas Abertas
+        <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200/90 shadow-xs space-y-6">
+          <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="px-3 py-1 rounded-full bg-sky-50 border border-sky-200 text-[#0284c7] text-xs font-bold uppercase tracking-wider">
+                  Esporte, Educação & Comunidade
                 </span>
-              </span>
-              <span aria-hidden="true" className="text-slate-300">·</span>
-              <span className="flex items-center gap-1.5 font-bold text-amber-700">
-                <Crosshair className="w-4 h-4 text-amber-500" />
-                <span>Vitrine de Olheiros Ativa</span>
-              </span>
+                <span className="text-xs text-slate-400">· Cariacica/ES</span>
+              </div>
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
+                Projetos, Equipes & Participantes Vinculados
+              </h1>
+              <p className="text-xs sm:text-sm text-slate-600 max-w-2xl leading-relaxed">
+                Atividades gratuitas para todas as idades com acompanhamento de professores registrados, gestão de participantes vinculados via planilha .CSV (Next Fit) por projeto específico e vitrine técnica de atletas.
+              </p>
+
+              {/* Quick Metrics */}
+              <div className="flex flex-wrap items-center gap-4 pt-2 text-xs text-slate-600">
+                <span className="flex items-center gap-1.5 font-bold text-slate-900">
+                  <Shield className="w-4 h-4 text-[#0284c7]" />
+                  <span>{projects.length} Projetos Ativos</span>
+                </span>
+                <span aria-hidden="true" className="text-slate-300">·</span>
+                <span className="flex items-center gap-1.5 font-bold text-emerald-700">
+                  <Users className="w-4 h-4 text-emerald-600" />
+                  <span>{totalParticipantsCount} Participantes Vinculados</span>
+                </span>
+                <span aria-hidden="true" className="text-slate-300">·</span>
+                <span className="flex items-center gap-1.5 font-bold text-[#0284c7]">
+                  <FileSpreadsheet className="w-4 h-4 text-[#0284c7]" />
+                  <span>
+                    {projects.reduce((acc, p) => acc + (p.availableSpots ?? 15), 0)} Vagas Abertas
+                  </span>
+                </span>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  const p = projects[0];
+                  if (p) setDirectEnrollProject(p);
+                  else onOpenInscricoes();
+                }}
+                className="px-5 py-3 bg-[#0284c7] hover:bg-[#0369a1] text-white font-extrabold text-xs uppercase tracking-wider rounded-xl transition-colors cursor-pointer shadow-md flex items-center justify-center gap-2"
+              >
+                <FileCheck2 className="w-4 h-4" />
+                <span>Quero Fazer Minha Inscrição</span>
+              </button>
             </div>
           </div>
 
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 shrink-0">
-            <button
-              type="button"
-              onClick={() => {
-                const p = projects[0];
-                if (p) setDirectEnrollProject(p);
-                else onOpenInscricoes();
-              }}
-              className="px-5 py-3 bg-[#0284c7] hover:bg-[#0369a1] text-white font-extrabold text-xs uppercase tracking-wider rounded-xl transition-colors cursor-pointer shadow-md flex items-center justify-center gap-2"
-            >
-              <FileCheck2 className="w-4 h-4" />
-              <span>Quero Fazer Minha Inscrição</span>
-            </button>
+          {/* Sub-navigation inside Projects View Structure: 1. Projetos & Equipes | 2. Participantes (CSV por Projeto) */}
+          <div className="pt-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setProjectsViewMode('catalogo')}
+                className={`px-4 py-2.5 rounded-xl text-xs font-extrabold uppercase tracking-wider transition-all cursor-pointer flex items-center gap-2 ${
+                  projectsViewMode === 'catalogo'
+                    ? 'bg-[#0a1e36] text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900'
+                }`}
+              >
+                <LayoutGrid className="w-4 h-4" />
+                <span>Projetos & Estrutura ({projects.length})</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setProjectsViewMode('participantes')}
+                className={`px-4 py-2.5 rounded-xl text-xs font-extrabold uppercase tracking-wider transition-all cursor-pointer flex items-center gap-2 ${
+                  projectsViewMode === 'participantes'
+                    ? 'bg-emerald-700 text-white shadow-xs'
+                    : 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100'
+                }`}
+              >
+                <Users className="w-4 h-4" />
+                <span>Participantes ({totalParticipantsCount})</span>
+                <span
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-black ${
+                    projectsViewMode === 'participantes'
+                      ? 'bg-emerald-900/60 text-emerald-100'
+                      : 'bg-emerald-100 text-emerald-900'
+                  }`}
+                >
+                  .CSV / Por Projeto
+                </span>
+              </button>
+            </div>
+
+            {projectsViewMode === 'catalogo' && (
+              <p className="text-[11px] text-slate-500">
+                Clique em <strong>"Participantes"</strong> em qualquer card abaixo para ver ou associar a lista .CSV específica daquele projeto.
+              </p>
+            )}
           </div>
         </div>
 
-        {/* Projects Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {projects.map((proj) => {
-            const avail = proj.availableSpots ?? 20;
-            const tot = proj.totalSpots ?? 100;
-            const fill = proj.filledSpots ?? (tot - avail);
-            const pct = Math.min(100, Math.round((fill / tot) * 100));
-            const staffCount = proj.staff?.length || 0;
-            const participantCount = proj.participants?.length || 0;
-
-            return (
-              <div
-                key={proj.id}
-                className="bg-white rounded-2xl border border-slate-200/90 overflow-hidden flex flex-col justify-between shadow-xs hover:shadow-lg hover:border-sky-300 transition-all group"
-              >
-                {/* Image Banner with Floating Official Shield */}
-                <div className="relative aspect-16/10 bg-slate-900 overflow-hidden">
-                  <img
-                    src={proj.imageUrl}
-                    alt={proj.name}
-                    referrerPolicy="no-referrer"
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 opacity-90"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/30 to-transparent" />
-
-                  {/* Floating Project Shield */}
-                  {proj.shieldUrl && (
-                    <div
-                      className="absolute top-3 left-3 w-12 h-12 rounded-xl bg-white/90 backdrop-blur-md p-1.5 shadow-xl border border-white/60 flex items-center justify-center transition-transform hover:scale-110"
-                      title={`Escudo Oficial: ${proj.name}`}
-                    >
-                      <img
-                        src={proj.shieldUrl}
-                        alt="Escudo"
-                        className="w-full h-full object-contain filter drop-shadow-sm"
-                      />
-                    </div>
-                  )}
-
-                  {/* Category Pill */}
-                  <div className="absolute top-3 right-3 px-2.5 py-1 rounded-full bg-slate-900/80 backdrop-blur-xs border border-white/20 text-white text-[10px] font-bold uppercase tracking-wider">
-                    {proj.category.replace('_', ' ')}
-                  </div>
-
-                  {/* Bottom Image Info */}
-                  <div className="absolute bottom-3 inset-x-3 text-white flex items-center justify-between text-xs">
-                    <span className="flex items-center gap-1 text-slate-200 text-[11px] truncate">
-                      <MapPin className="w-3 h-3 text-sky-400 shrink-0" />
-                      <span>{proj.location}</span>
-                    </span>
-                    <span className="px-2 py-0.5 rounded bg-emerald-500/90 text-white text-[10px] font-bold shrink-0">
-                      Gratuito
-                    </span>
-                  </div>
+        {/* VIEW MODE 2: PARTICIPANTES VINCULADOS POR PROJETO ESPECÍFICO + IMPORTAÇÃO CSV */}
+        {projectsViewMode === 'participantes' ? (
+          <div className="space-y-6 animate-in fade-in duration-200">
+            {/* Project-Specific Selector Cards */}
+            <div className="bg-white p-5 sm:p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <span className="text-[10px] font-black uppercase tracking-wider text-emerald-700">
+                    Vínculo por Projeto Específico
+                  </span>
+                  <h2 className="text-base sm:text-lg font-extrabold text-slate-900">
+                    Selecione um Projeto para Filtrar ou Associar Lista .CSV
+                  </h2>
                 </div>
+                {projectsParticipantFilter !== 'all' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const found = projects.find((p) => p.id === projectsParticipantFilter);
+                      if (found) {
+                        setProjectTab('participantes');
+                        setSelectedProject(found);
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                      }
+                    }}
+                    className="px-3.5 py-2 bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-bold rounded-xl transition-colors cursor-pointer inline-flex items-center gap-1.5 self-start sm:self-auto"
+                  >
+                    <span>Abrir Página Completa deste Projeto</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
 
-                {/* Card Body */}
-                <div className="p-5 flex-1 flex flex-col justify-between space-y-4">
-                  <div>
-                    <h3 className="font-extrabold text-base text-slate-900 group-hover:text-[#0284c7] transition-colors leading-tight">
-                      {proj.name}
-                    </h3>
-                    {proj.motto && (
-                      <p className="text-[11px] text-amber-600 font-semibold italic mt-0.5">
-                        "{proj.motto}"
-                      </p>
-                    )}
-                    <p className="text-xs text-slate-600 mt-2 line-clamp-2 leading-relaxed">
-                      {proj.description}
-                    </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setProjectsParticipantFilter('all')}
+                  className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex items-center justify-between gap-3 ${
+                    projectsParticipantFilter === 'all'
+                      ? 'bg-[#0a1e36] text-white border-[#0a1e36] shadow-sm'
+                      : 'bg-slate-50 hover:bg-white text-slate-800 border-slate-200'
+                  }`}
+                >
+                  <div className="min-w-0">
+                    <span
+                      className={`text-[10px] font-black uppercase tracking-wider block ${
+                        projectsParticipantFilter === 'all' ? 'text-sky-300' : 'text-slate-400'
+                      }`}
+                    >
+                      Visão Consolidada
+                    </span>
+                    <span className="font-extrabold text-xs sm:text-sm block truncate mt-0.5">
+                      Todos os Projetos
+                    </span>
                   </div>
+                  <span
+                    className={`px-2.5 py-1 rounded-xl text-xs font-black font-mono shrink-0 ${
+                      projectsParticipantFilter === 'all'
+                        ? 'bg-white/15 text-white'
+                        : 'bg-white text-slate-800 border border-slate-200'
+                    }`}
+                  >
+                    {totalParticipantsCount}
+                  </span>
+                </button>
 
-                  {/* Live Spots Bar */}
-                  <div className="space-y-1.5 p-3 rounded-xl bg-slate-50 border border-slate-100">
-                    <div className="flex items-center justify-between text-[11px] font-bold">
-                      <span className="text-slate-700 flex items-center gap-1">
-                        <Users className="w-3.5 h-3.5 text-[#0284c7]" />
-                        <span>Vagas Disponíveis:</span>
-                      </span>
-                      <span className="text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded font-extrabold text-[10px]">
-                        {avail} vagas abertas
-                      </span>
-                    </div>
-                    <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-gradient-to-r from-sky-500 to-[#0284c7] rounded-full"
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
-                    <div className="flex items-center justify-between text-[10px] text-slate-500">
-                      <span>{fill} matriculados</span>
-                      <span>Total: {tot} vagas</span>
-                    </div>
-                  </div>
-
-                  {/* Team & Participants Mini Indicators */}
-                  <div className="grid grid-cols-2 gap-2 text-[11px] pt-1">
-                    <div className="p-2 rounded-lg bg-sky-50/70 border border-sky-100/80">
-                      <span className="text-[10px] font-bold uppercase text-[#0284c7] block">
-                        Equipe Técnica
-                      </span>
-                      <span className="font-semibold text-slate-800 truncate block mt-0.5">
-                        {staffCount > 0 ? `${staffCount} Professores` : 'Coordenação Ativa'}
-                      </span>
-                    </div>
-
-                    <div className="p-2 rounded-lg bg-amber-50/70 border border-amber-100/80">
-                      <span className="text-[10px] font-bold uppercase text-amber-700 block">
-                        Vitrine Olheiros
-                      </span>
-                      <span className="font-semibold text-slate-800 truncate block mt-0.5">
-                        {participantCount > 0 ? `${participantCount} Cartinhas` : 'Avaliação Contínua'}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Footer Schedule & Action Buttons */}
-                  <div className="space-y-2 pt-3 border-t border-slate-100">
-                    <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
-                      <Clock className="w-3.5 h-3.5 text-[#0284c7] shrink-0" />
-                      <span className="truncate">{proj.schedule}</span>
-                    </div>
-
-                    {proj.attachments && proj.attachments.length > 0 && (
-                      <div className="space-y-1 pt-1">
-                        {proj.attachments.map((att) => (
-                          <a
-                            key={att.id}
-                            href={att.dataUrl}
-                            download={att.name}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="w-full px-2.5 py-1 bg-sky-50/80 hover:bg-sky-100 text-[#0284c7] rounded-lg border border-sky-200 text-[10px] font-semibold flex items-center justify-between gap-2 transition-colors"
+                {projects.map((proj) => {
+                  const isSelected = projectsParticipantFilter === proj.id;
+                  const pCount = (proj.participants || []).length;
+                  return (
+                    <button
+                      key={proj.id}
+                      type="button"
+                      onClick={() => setProjectsParticipantFilter(proj.id)}
+                      className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex items-center justify-between gap-3 ${
+                        isSelected
+                          ? 'bg-emerald-700 text-white border-emerald-700 shadow-sm'
+                          : 'bg-slate-50 hover:bg-white text-slate-800 border-slate-200 hover:border-emerald-300'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        {proj.shieldUrl ? (
+                          <img
+                            src={proj.shieldUrl}
+                            alt={proj.name}
+                            className="w-8 h-8 rounded-lg object-contain bg-white p-1 border border-slate-200 shrink-0"
+                          />
+                        ) : (
+                          <div className="w-8 h-8 rounded-lg bg-sky-100 text-[#0284c7] flex items-center justify-center shrink-0">
+                            <Shield className="w-4 h-4" />
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <span
+                            className={`text-[10px] font-bold uppercase tracking-wider block truncate ${
+                              isSelected ? 'text-emerald-200' : 'text-slate-400'
+                            }`}
                           >
-                            <span className="truncate flex items-center gap-1">
-                              <Paperclip className="w-3 h-3 shrink-0" />
-                              {att.name}
-                            </span>
-                            <Download className="w-3 h-3 shrink-0" />
-                          </a>
-                        ))}
+                            {proj.category.replace(/_/g, ' ')}
+                          </span>
+                          <span className="font-extrabold text-xs block truncate">
+                            {proj.name}
+                          </span>
+                        </div>
+                      </div>
+                      <span
+                        className={`px-2.5 py-1 rounded-xl text-xs font-black font-mono shrink-0 ${
+                          isSelected
+                            ? 'bg-white/20 text-white'
+                            : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                        }`}
+                      >
+                        {pCount}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Integrated CSV Association & Project-Linked Participants Manager */}
+            <NextFitParticipantsManager
+              mode="projects_subtab"
+              projects={projects}
+              selectedProjectFilter={projectsParticipantFilter}
+              onSelectProjectFilterChange={setProjectsParticipantFilter}
+              onUpdateProjects={(updatedProjects, toastMsg) => {
+                saveAdminChanges({
+                  projects: updatedProjects,
+                  toastMessage: toastMsg,
+                  logDetails:
+                    toastMsg ||
+                    'Relação de participantes atualizada e vinculada aos projetos via .CSV.',
+                });
+              }}
+              onNotify={showToast}
+            />
+          </div>
+        ) : (
+          /* VIEW MODE 1: PROJECTS CATALOG GRID */
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {projects.map((proj) => {
+              const avail = proj.availableSpots ?? 20;
+              const tot = proj.totalSpots ?? 100;
+              const participantCount = proj.participants?.length || 0;
+              const fill = proj.filledSpots ?? participantCount ?? (tot - avail);
+              const pct = Math.min(100, Math.round((fill / Math.max(1, tot)) * 100));
+              const staffCount = proj.staff?.length || 0;
+
+              return (
+                <div
+                  key={proj.id}
+                  className="bg-white rounded-2xl border border-slate-200/90 overflow-hidden flex flex-col justify-between shadow-xs hover:shadow-lg hover:border-sky-300 transition-all group"
+                >
+                  {/* Image Banner with Floating Official Shield */}
+                  <div className="relative aspect-16/10 bg-slate-900 overflow-hidden">
+                    <img
+                      src={proj.imageUrl}
+                      alt={proj.name}
+                      referrerPolicy="no-referrer"
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 opacity-90"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/30 to-transparent" />
+
+                    {/* Floating Project Shield */}
+                    {proj.shieldUrl && (
+                      <div
+                        className="absolute top-3 left-3 w-12 h-12 rounded-xl bg-white/90 backdrop-blur-md p-1.5 shadow-xl border border-white/60 flex items-center justify-center transition-transform hover:scale-110"
+                        title={`Escudo Oficial: ${proj.name}`}
+                      >
+                        <img
+                          src={proj.shieldUrl}
+                          alt="Escudo"
+                          className="w-full h-full object-contain filter drop-shadow-sm"
+                        />
                       </div>
                     )}
 
-                    {/* Action Buttons */}
-                    <div className="grid grid-cols-2 gap-2 pt-1">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedProject(proj);
-                          window.scrollTo({ top: 0, behavior: 'smooth' });
-                        }}
-                        className="py-2.5 px-3 bg-[#0284c7] hover:bg-[#0369a1] text-white font-bold text-xs rounded-xl transition-all cursor-pointer shadow-xs flex items-center justify-center gap-1"
-                      >
-                        <span>Página & Equipe</span>
-                        <ChevronRight className="w-3.5 h-3.5" />
-                      </button>
+                    {/* Category Pill */}
+                    <div className="absolute top-3 right-3 px-2.5 py-1 rounded-full bg-slate-900/80 backdrop-blur-xs border border-white/20 text-white text-[10px] font-bold uppercase tracking-wider">
+                      {proj.category.replace('_', ' ')}
+                    </div>
+
+                    {/* Bottom Image Info */}
+                    <div className="absolute bottom-3 inset-x-3 text-white flex items-center justify-between text-xs">
+                      <span className="flex items-center gap-1 text-slate-200 text-[11px] truncate">
+                        <MapPin className="w-3 h-3 text-sky-400 shrink-0" />
+                        <span>{proj.location}</span>
+                      </span>
+                      <span className="px-2 py-0.5 rounded bg-emerald-500/90 text-white text-[10px] font-bold shrink-0">
+                        Gratuito
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Card Body */}
+                  <div className="p-5 flex-1 flex flex-col justify-between space-y-4">
+                    <div>
+                      <h3 className="font-extrabold text-base text-slate-900 group-hover:text-[#0284c7] transition-colors leading-tight">
+                        {proj.name}
+                      </h3>
+                      {proj.motto && (
+                        <p className="text-[11px] text-amber-600 font-semibold italic mt-0.5">
+                          "{proj.motto}"
+                        </p>
+                      )}
+                      <p className="text-xs text-slate-600 mt-2 line-clamp-2 leading-relaxed">
+                        {proj.description}
+                      </p>
+                    </div>
+
+                    {/* Live Spots Bar */}
+                    <div className="space-y-1.5 p-3 rounded-xl bg-slate-50 border border-slate-100">
+                      <div className="flex items-center justify-between text-[11px] font-bold">
+                        <span className="text-slate-700 flex items-center gap-1">
+                          <Users className="w-3.5 h-3.5 text-[#0284c7]" />
+                          <span>Vagas Disponíveis:</span>
+                        </span>
+                        <span className="text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded font-extrabold text-[10px]">
+                          {avail} vagas abertas
+                        </span>
+                      </div>
+                      <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-gradient-to-r from-sky-500 to-[#0284c7] rounded-full"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between text-[10px] text-slate-500">
+                        <span>{participantCount} participantes vinculados</span>
+                        <span>Total: {tot} vagas</span>
+                      </div>
+                    </div>
+
+                    {/* Team, Participants & Scouts Mini Indicators */}
+                    <div className="grid grid-cols-3 gap-2 text-[11px] pt-1">
+                      <div className="p-2 rounded-lg bg-sky-50/70 border border-sky-100/80">
+                        <span className="text-[10px] font-bold uppercase text-[#0284c7] block truncate">
+                          Equipe
+                        </span>
+                        <span className="font-semibold text-slate-800 truncate block mt-0.5">
+                          {staffCount > 0 ? `${staffCount} Prof.` : 'Ativa'}
+                        </span>
+                      </div>
 
                       <button
                         type="button"
-                        onClick={() => setDirectEnrollProject(proj)}
-                        className="py-2.5 px-3 bg-slate-100 hover:bg-emerald-600 hover:text-white text-slate-800 font-bold text-xs rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1"
+                        onClick={() => {
+                          setProjectTab('participantes');
+                          setSelectedProject(proj);
+                          window.scrollTo({ top: 0, behavior: 'smooth' });
+                        }}
+                        className="p-2 rounded-lg bg-emerald-50/80 hover:bg-emerald-100 border border-emerald-200/80 text-left transition-colors cursor-pointer"
+                        title="Ver e associar participantes (.CSV) deste projeto"
                       >
-                        <FileCheck2 className="w-3.5 h-3.5" />
-                        <span>Inscrição Direta</span>
+                        <span className="text-[10px] font-bold uppercase text-emerald-800 block truncate">
+                          Participantes
+                        </span>
+                        <span className="font-extrabold text-emerald-950 truncate block mt-0.5">
+                          {participantCount} alunos →
+                        </span>
                       </button>
+
+                      <div className="p-2 rounded-lg bg-amber-50/70 border border-amber-100/80">
+                        <span className="text-[10px] font-bold uppercase text-amber-700 block truncate">
+                          Olheiros
+                        </span>
+                        <span className="font-semibold text-slate-800 truncate block mt-0.5">
+                          {participantCount > 0 ? `${participantCount} Fichas` : 'Ativo'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Footer Schedule & Action Buttons */}
+                    <div className="space-y-2 pt-3 border-t border-slate-100">
+                      <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                        <Clock className="w-3.5 h-3.5 text-[#0284c7] shrink-0" />
+                        <span className="truncate">{proj.schedule}</span>
+                      </div>
+
+                      {proj.attachments && proj.attachments.length > 0 && (
+                        <div className="space-y-1 pt-1">
+                          {proj.attachments.map((att) => (
+                            <a
+                              key={att.id}
+                              href={att.dataUrl}
+                              download={att.name}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="w-full px-2.5 py-1 bg-sky-50/80 hover:bg-sky-100 text-[#0284c7] rounded-lg border border-sky-200 text-[10px] font-semibold flex items-center justify-between gap-2 transition-colors"
+                            >
+                              <span className="truncate flex items-center gap-1">
+                                <Paperclip className="w-3 h-3 shrink-0" />
+                                {att.name}
+                              </span>
+                              <Download className="w-3 h-3 shrink-0" />
+                            </a>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Action Buttons */}
+                      <div className="grid grid-cols-3 gap-1.5 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setProjectTab('funcionamento');
+                            setSelectedProject(proj);
+                            window.scrollTo({ top: 0, behavior: 'smooth' });
+                          }}
+                          className="py-2.5 px-2 bg-[#0284c7] hover:bg-[#0369a1] text-white font-bold text-[11px] rounded-xl transition-all cursor-pointer shadow-xs flex items-center justify-center gap-1"
+                        >
+                          <span>Detalhes</span>
+                          <ChevronRight className="w-3 h-3 shrink-0" />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setProjectTab('participantes');
+                            setSelectedProject(proj);
+                            window.scrollTo({ top: 0, behavior: 'smooth' });
+                          }}
+                          className="py-2.5 px-2 bg-emerald-50 hover:bg-emerald-700 text-emerald-800 hover:text-white border border-emerald-200 font-bold text-[11px] rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1"
+                          title="Abrir visualização de Participantes deste projeto"
+                        >
+                          <Users className="w-3 h-3 shrink-0" />
+                          <span>Participantes</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setDirectEnrollProject(proj)}
+                          className="py-2.5 px-2 bg-slate-100 hover:bg-slate-800 hover:text-white text-slate-800 font-bold text-[11px] rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1"
+                        >
+                          <FileCheck2 className="w-3 h-3 shrink-0" />
+                          <span>Inscrição</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
 
         {/* Global Modals for Direct Catalog Actions */}
         {(() => {
@@ -2705,12 +2942,11 @@ export const SubpageView: React.FC<SubpageViewProps> = ({
           <CommunityHubView
             mode="full_page"
             initialTab={
-              subId === 'carteirinha' ||
               subId === 'resultados' ||
               subId === 'apoie-pix' ||
               subId === 'voluntariado'
                 ? (subId as CommunityHubTab)
-                : 'carteirinha'
+                : 'resultados'
             }
           />
         )}

@@ -209,7 +209,8 @@ export function matchProjectForModality(
  */
 export function parseNextFitCsv(
   csvText: string,
-  projects: VitalizarProject[]
+  projects: VitalizarProject[],
+  defaultProjectId?: string
 ): {
   rows: NextFitCsvAthleteRow[];
   ignoredContactColumns: string[];
@@ -280,7 +281,8 @@ export function parseNextFitCsv(
   const idxBirth = findColIndex(['nascimento', 'data de nasc', 'dt nasc', 'aniversario']);
   const idxAge = findColIndex(['idade', 'anos']);
   const idxStatus = findColIndex(['situacao', 'status', 'status matricula', 'condicao']);
-  const idxModality = findColIndex(['modalidade', 'turma', 'projeto', 'categoria', 'esporte']);
+  const idxProject = findColIndex(['projeto vinculado', 'projeto', 'nucleo']);
+  const idxModality = findColIndex(['modalidade', 'turma', 'categoria', 'esporte']);
   const idxPlan = findColIndex(['plano', 'contrato', 'bolsa', 'pacote']);
   const idxPos = findColIndex(['posicao', 'funcao', 'atuacao']);
   const idxHeight = findColIndex(['altura', 'estatura']);
@@ -312,8 +314,9 @@ export function parseNextFitCsv(
     const enrollmentStatus = normalizeEnrollmentStatus(
       idxStatus !== -1 ? cols[idxStatus] : 'Ativo'
     );
+    const explicitProjectCol = (idxProject !== -1 ? cols[idxProject] : '').trim();
     const modalityOrClass =
-      (idxModality !== -1 ? cols[idxModality] : '').trim() ||
+      (idxModality !== -1 ? cols[idxModality] : explicitProjectCol).trim() ||
       'Formação Esportiva Base';
     const planName =
       (idxPlan !== -1 ? cols[idxPlan] : '').trim() || 'Matrícula Next Fit';
@@ -337,6 +340,11 @@ export function parseNextFitCsv(
         ? cols[idxPhoto].trim()
         : '') || DEFAULT_AVATARS[i % DEFAULT_AVATARS.length];
 
+    const matchedTargetProjectId =
+      defaultProjectId && defaultProjectId !== 'auto'
+        ? defaultProjectId
+        : matchProjectForModality(explicitProjectCol || modalityOrClass, projects);
+
     rows.push({
       id: `nf-row-${Date.now()}-${i}`,
       nextfitCode,
@@ -354,7 +362,7 @@ export function parseNextFitCsv(
       schoolName,
       notes,
       photoUrl,
-      targetProjectId: matchProjectForModality(modalityOrClass, projects),
+      targetProjectId: matchedTargetProjectId,
     });
   }
 

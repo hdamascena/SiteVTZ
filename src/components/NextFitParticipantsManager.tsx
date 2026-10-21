@@ -207,7 +207,13 @@ export const NextFitParticipantsManager: React.FC<NextFitParticipantsManagerProp
   };
 
   const handleProcessCsvText = (rawText: string, sourceLabel: string) => {
-    const parsed = parseNextFitCsv(rawText, projects);
+    const preferredProj =
+      activeProjectFilter !== 'all'
+        ? activeProjectFilter
+        : csvTargetProjectId !== 'auto'
+        ? csvTargetProjectId
+        : undefined;
+    const parsed = parseNextFitCsv(rawText, projects, preferredProj);
     if (parsed.error) {
       setCsvError(parsed.error);
       setStagedRows([]);
@@ -222,7 +228,7 @@ export const NextFitParticipantsManager: React.FC<NextFitParticipantsManagerProp
       setCsvTargetProjectId(activeProjectFilter);
     }
     onNotify(
-      `${parsed.rows.length} atleta(s) lidos da planilha "${sourceLabel}". Revise e confirme a importação abaixo!`,
+      `${parsed.rows.length} atleta(s) lidos da planilha "${sourceLabel}". Revise e confirme o projeto associado abaixo!`,
       'info'
     );
   };
@@ -389,6 +395,45 @@ export const NextFitParticipantsManager: React.FC<NextFitParticipantsManagerProp
     onUpdateProjects(nextProjects, 'Status de matrícula atualizado!', false);
   };
 
+  const handleReassignParticipantProject = (
+    fromProjectId: string,
+    participant: ProjectParticipant,
+    toProjectId: string
+  ) => {
+    if (fromProjectId === toProjectId) return;
+    const targetProj = projects.find((p) => p.id === toProjectId);
+    if (!targetProj) return;
+
+    const nextProjects = projects.map((proj) => {
+      if (proj.id === fromProjectId) {
+        const nextList = (proj.participants || []).filter((p) => p.id !== participant.id);
+        return {
+          ...proj,
+          participants: nextList,
+          filledSpots: nextList.length,
+        };
+      }
+      if (proj.id === toProjectId) {
+        const exists = (proj.participants || []).some((p) => p.id === participant.id);
+        const nextList = exists
+          ? proj.participants || []
+          : [...(proj.participants || []), participant];
+        return {
+          ...proj,
+          participants: nextList,
+          filledSpots: nextList.length,
+        };
+      }
+      return proj;
+    });
+
+    onUpdateProjects(
+      nextProjects,
+      `Participante "${participant.name}" associado ao projeto "${targetProj.name}"!`,
+      true
+    );
+  };
+
   const handleRemoveParticipant = (
     projectId: string,
     participantId: string,
@@ -410,6 +455,8 @@ export const NextFitParticipantsManager: React.FC<NextFitParticipantsManagerProp
     );
   };
 
+  const selectedProjectObj = projects.find((p) => p.id === activeProjectFilter);
+
   return (
     <div className="space-y-5">
       {/* ========================================================================= */}
@@ -418,27 +465,58 @@ export const NextFitParticipantsManager: React.FC<NextFitParticipantsManagerProp
       <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-4">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-100 pb-4">
           <div className="space-y-1">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="text-[10px] font-black uppercase tracking-widest text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-md border border-emerald-200">
                 Integração Next Fit via Planilha .CSV
               </span>
+              {selectedProjectObj && (
+                <span className="text-[10px] font-black uppercase tracking-wider text-white bg-[#0284c7] px-2.5 py-0.5 rounded-md">
+                  Projeto Selecionado: {selectedProjectObj.name}
+                </span>
+              )}
               <span className="text-[11px] text-slate-500 flex items-center gap-1">
                 <ShieldCheck className="w-3.5 h-3.5 text-[#0284c7]" />
                 Privacidade Ativa: Sem dados de contato/telefone
               </span>
             </div>
             <h3 className="text-base font-black text-[#0a1e36] uppercase">
-              {mode === 'import_hub'
+              {selectedProjectObj
+                ? `Associar e Exibir Participantes — ${selectedProjectObj.name}`
+                : mode === 'import_hub'
                 ? 'Central de Importação de Atletas Next Fit (.CSV)'
-                : 'Sincronizar e Gerenciar Participantes dos Projetos (.CSV Next Fit)'}
+                : 'Sincronizar e Associar Participantes aos Projetos (.CSV Next Fit)'}
             </h3>
             <p className="text-xs text-slate-600 max-w-3xl">
               Exporte o relatório de alunos/matrículas no painel do <strong>Next Fit</strong> em formato{' '}
-              <code className="bg-slate-100 px-1.5 py-0.5 rounded font-mono">.csv</code> e envie abaixo para atualizar os participantes dos projetos com status de matrícula, modalidade/turma e avaliação física.
+              <code className="bg-slate-100 px-1.5 py-0.5 rounded font-mono">.csv</code>, escolha o projeto de destino e envie abaixo para associar a lista vinculada a cada projeto específico.
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <select
+              value={
+                activeProjectFilter !== 'all' ? activeProjectFilter : csvTargetProjectId
+              }
+              onChange={(e) => {
+                const val = e.target.value;
+                setCsvTargetProjectId(val);
+                if (val !== 'auto') {
+                  setProjectFilter(val);
+                } else {
+                  setProjectFilter('all');
+                }
+              }}
+              className="px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-800 max-w-[230px]"
+              title="Selecione a qual projeto específico a lista .CSV será associada"
+            >
+              <option value="auto">Vínculo Automático (pela Turma CSV)</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  Associar a: {p.name}
+                </option>
+              ))}
+            </select>
+
             <label className="px-4 py-2.5 bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-bold uppercase rounded-xl transition-colors cursor-pointer flex items-center gap-2 shadow-xs whitespace-nowrap shrink-0">
               <Upload className="w-4 h-4" />
               <span>Subir Planilha .CSV Next Fit</span>
@@ -868,10 +946,25 @@ export const NextFitParticipantsManager: React.FC<NextFitParticipantsManagerProp
                       </td>
 
                       <td className="p-3">
-                        <span className="font-bold text-[#0a1e36] block">
-                          {projectName}
-                        </span>
-                        <span className="text-[11px] text-slate-500">
+                        <select
+                          value={projectId}
+                          onChange={(e) =>
+                            handleReassignParticipantProject(
+                              projectId,
+                              participant,
+                              e.target.value
+                            )
+                          }
+                          className="px-2 py-1 bg-slate-50 hover:bg-white border border-slate-200 rounded-lg font-bold text-[#0a1e36] text-xs cursor-pointer max-w-[210px] block mb-0.5"
+                          title="Associar participante a outro projeto específico"
+                        >
+                          {projects.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name}
+                            </option>
+                          ))}
+                        </select>
+                        <span className="text-[11px] text-slate-500 block">
                           {participant.modalityOrClass || 'Turma Regular'}
                           {participant.planName ? ` · ${participant.planName}` : ''}
                         </span>

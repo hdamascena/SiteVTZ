@@ -1,13 +1,10 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import {
-  IdCard,
   Trophy,
   HeartHandshake,
   Users,
-  Search,
   Copy,
   Check,
-  Printer,
   Award,
   Calendar,
   MapPin,
@@ -15,7 +12,6 @@ import {
   ArrowRight,
   CheckCircle2,
   QrCode,
-  FileCheck2,
   Send,
   Medal,
 } from 'lucide-react';
@@ -26,13 +22,11 @@ import {
   generateDeterministicQrMatrix,
 } from '../utils/pixPayload.ts';
 import type {
-  ProjectParticipant,
   VolunteerApplicationRecord,
   DonationPledgeRecord,
 } from '../types/index.ts';
 
 export type CommunityHubTab =
-  | 'carteirinha'
   | 'resultados'
   | 'apoie-pix'
   | 'voluntariado';
@@ -44,7 +38,7 @@ interface CommunityHubViewProps {
 }
 
 export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
-  initialTab = 'carteirinha',
+  initialTab = 'resultados',
   mode = 'full_page',
   onOpenFullHub,
 }) => {
@@ -52,8 +46,6 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
     clubInfo,
     siteSettings,
     setSiteSettings,
-    projects,
-    rsvps,
     showToast,
     addAuditLog,
   } = useClubData();
@@ -65,79 +57,6 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
       setActiveTab(initialTab);
     }
   }, [initialTab]);
-
-  // ============================================================================
-  // IDEA 1 STATE: CARTEIRINHA DIGITAL, CONSULTA DE MATRÍCULA & CERTIFICADOS
-  // ============================================================================
-  const [athleteQuery, setAthleteQuery] = useState<string>('');
-  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
-  const [selectedDocType, setSelectedDocType] = useState<
-    'carteirinha' | 'declaracao' | 'certificado'
-  >('carteirinha');
-
-  const allAthletes = useMemo(() => {
-    const list: Array<{
-      projectId: string;
-      projectName: string;
-      projectSchedule: string;
-      projectLocation: string;
-      projectCoordinator: string;
-      participant: ProjectParticipant;
-    }> = [];
-
-    projects.forEach((proj) => {
-      (proj.participants || []).forEach((part) => {
-        list.push({
-          projectId: proj.id,
-          projectName: proj.name,
-          projectSchedule: proj.schedule,
-          projectLocation: proj.location,
-          projectCoordinator: proj.coordinator,
-          participant: part,
-        });
-      });
-    });
-    return list;
-  }, [projects]);
-
-  const [selectedAthleteEntry, setSelectedAthleteEntry] = useState<
-    (typeof allAthletes)[0] | null
-  >(null);
-
-  useEffect(() => {
-    if (!selectedAthleteEntry && allAthletes.length > 0) {
-      setSelectedAthleteEntry(allAthletes[0]);
-    }
-  }, [allAthletes, selectedAthleteEntry]);
-
-  const filteredAthletes = useMemo(() => {
-    const q = athleteQuery.trim().toLowerCase();
-    return allAthletes.filter(({ participant, projectName }) => {
-      if (
-        selectedCategoryFilter !== 'all' &&
-        participant.category !== selectedCategoryFilter
-      ) {
-        return false;
-      }
-      if (!q) return true;
-      return (
-        (participant.name || '').toLowerCase().includes(q) ||
-        (participant.nextfitCode || '').toLowerCase().includes(q) ||
-        (participant.category || '').toLowerCase().includes(q) ||
-        (projectName || '').toLowerCase().includes(q)
-      );
-    });
-  }, [allAthletes, athleteQuery, selectedCategoryFilter]);
-
-  const matchingRsvps = useMemo(() => {
-    const q = athleteQuery.trim().toLowerCase();
-    if (!q || q.length < 3) return [];
-    return rsvps.filter(
-      (r) =>
-        (r.confirmationCode || '').toLowerCase().includes(q) ||
-        (r.name || '').toLowerCase().includes(q)
-    );
-  }, [rsvps, athleteQuery]);
 
   // ============================================================================
   // IDEA 3 STATE: JOGOS, RESULTADOS & GALERIA DE TROFÉUS DA BASE
@@ -316,20 +235,20 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
             <div>
               <p className="text-xs font-semibold text-[#0284c7] tracking-wide">
-                Serviços Digitais & Comunidade · Cariacica/ES
+                Esporte de Base & Rede Comunitária · Cariacica/ES
               </p>
               <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight mt-1 text-balance">
-                Portal do Atleta, Resultados da Base, Apoio PIX e Voluntariado
+                Resultados da Base, Apoio via PIX e Programa de Voluntariado
               </h2>
               <p className="text-sm text-slate-600 mt-1.5 max-w-2xl leading-relaxed">
-                Emita a carteirinha digital e certificados de participação, acompanhe o placar das categorias de base ou apoie os projetos gratuitos via PIX oficial da Associação Vitalizar.
+                Acompanhe o placar e as conquistas das nossas categorias de base, apoie os projetos gratuitos via PIX oficial da Associação Vitalizar ou atue como voluntário.
               </p>
             </div>
 
             {onOpenFullHub && (
               <button
                 type="button"
-                onClick={() => onOpenFullHub('carteirinha')}
+                onClick={() => onOpenFullHub('apoie-pix')}
                 className="inline-flex items-center gap-2 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-xl transition-colors cursor-pointer self-start md:self-auto whitespace-nowrap shrink-0"
               >
                 <span>Acessar Central Completa</span>
@@ -338,36 +257,8 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
             )}
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
-            {/* Card 1: Carteirinha Digital & Certificados */}
-            <div className="bg-white rounded-2xl border border-slate-200 p-6 flex flex-col justify-between space-y-5 hover:border-sky-300 transition-colors">
-              <div className="space-y-3">
-                <div className="w-10 h-10 rounded-xl bg-sky-50 border border-sky-200 flex items-center justify-center text-[#0284c7]">
-                  <IdCard className="w-5 h-5" />
-                </div>
-                <div className="text-xs text-slate-500">
-                  <span>Portal do Aluno</span>
-                  <span aria-hidden="true"> · </span>
-                  <span>Next Fit Sync</span>
-                </div>
-                <h3 className="text-base font-bold text-slate-900">
-                  Carteirinha Digital & Declaração Escolar
-                </h3>
-                <p className="text-xs text-slate-600 leading-relaxed">
-                  Consulte a situação da matrícula pelo nome ou código Next Fit e emita a Carteirinha Digital ou Declaração de Assiduidade.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => onOpenFullHub?.('carteirinha')}
-                className="w-full py-2.5 px-4 bg-slate-100 hover:bg-[#0284c7] hover:text-white text-slate-900 text-xs font-semibold rounded-xl transition-colors flex items-center justify-between cursor-pointer"
-              >
-                <span>Emitir Carteirinha</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-
-            {/* Card 2: Placar da Base & Galeria de Troféus */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {/* Card 1: Placar da Base & Galeria de Troféus */}
             <div className="bg-white rounded-2xl border border-slate-200 p-6 flex flex-col justify-between space-y-5 hover:border-sky-300 transition-colors">
               <div className="space-y-3">
                 <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600">
@@ -465,22 +356,21 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
       <div className="bg-[#061a38] text-white rounded-2xl p-6 sm:p-8 border border-sky-900/60 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
         <div className="space-y-2 max-w-2xl">
           <div className="text-xs text-sky-300 font-semibold">
-            <span>Central Digital da Comunidade</span>
+            <span>Central da Comunidade & Apoio Institucional</span>
             <span aria-hidden="true"> · </span>
             <span>CNPJ {clubInfo.cnpj}</span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-balance">
-            Portal do Atleta, Resultados da Base, Doação PIX e Voluntariado
+            Resultados da Base, Doação PIX e Voluntariado
           </h1>
           <p className="text-xs sm:text-sm text-sky-100/80 leading-relaxed">
-            Serviços digitais integrados aos projetos socioesportivos da Associação Esportiva Vitalizar em Rio Marinho, Cariacica/ES.
+            Acompanhe as competições das categorias de base, apoie financeiramente via PIX oficial ou cadastre-se como voluntário em Rio Marinho, Cariacica/ES.
           </p>
         </div>
 
         {/* Navigation Tabs */}
         <div className="flex flex-wrap items-center gap-2 bg-white/5 p-1.5 rounded-xl border border-white/10">
           {[
-            { id: 'carteirinha', label: 'Carteirinha & Certificados', icon: IdCard },
             { id: 'resultados', label: 'Jogos & Troféus', icon: Trophy },
             { id: 'apoie-pix', label: 'Apoiar via PIX', icon: QrCode },
             { id: 'voluntariado', label: 'Voluntariado', icon: Users },
@@ -507,418 +397,7 @@ export const CommunityHubView: React.FC<CommunityHubViewProps> = ({
       </div>
 
       {/* ======================================================================== */}
-      {/* TAB 1 (IDEA 1): CARTEIRINHA DIGITAL, CONSULTA DE MATRÍCULA & CERTIFICADOS */}
-      {/* ======================================================================== */}
-      {activeTab === 'carteirinha' && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-          {/* Left Column: Search & Athlete Selector */}
-          <div className="lg:col-span-5 bg-white rounded-2xl border border-slate-200 p-6 space-y-5">
-            <div>
-              <span className="text-xs font-semibold text-[#0284c7]">
-                Consulta Pública · Proteção de Dados (Sem Exibição de Contatos)
-              </span>
-              <h2 className="text-lg font-bold text-slate-900 mt-0.5">
-                Buscar Atleta, Código Next Fit ou Inscrição
-              </h2>
-              <p className="text-xs text-slate-600 mt-1">
-                Pesquise pelo nome do participante ou código Next Fit (ex: <code className="font-mono bg-slate-100 px-1 py-0.5 rounded">NF-1001</code>) para gerar a Carteirinha Digital e Declaração Oficial.
-              </p>
-            </div>
-
-            <div className="space-y-3">
-              <div className="relative">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  value={athleteQuery}
-                  onChange={(e) => setAthleteQuery(e.target.value)}
-                  placeholder="Digite o nome do aluno, código NF ou protocolo..."
-                  className="w-full pl-10 pr-4 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500"
-                />
-              </div>
-
-              <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                {['all', 'Sub-11', 'Sub-13', 'Sub-15', 'Sub-17', '60+ Vida Ativa'].map(
-                  (cat) => (
-                    <button
-                      key={cat}
-                      type="button"
-                      onClick={() => setSelectedCategoryFilter(cat)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
-                        selectedCategoryFilter === cat
-                          ? 'bg-slate-900 text-white'
-                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                      }`}
-                    >
-                      {cat === 'all' ? 'Todas as Turmas' : cat}
-                    </button>
-                  )
-                )}
-              </div>
-            </div>
-
-            {/* Matching Event/Modality RSVPs if searched */}
-            {matchingRsvps.length > 0 && (
-              <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl space-y-2">
-                <span className="text-xs font-bold text-emerald-900 block">
-                  Protocolos de Inscrição Encontrados ({matchingRsvps.length})
-                </span>
-                {matchingRsvps.map((r) => (
-                  <div
-                    key={r.id}
-                    className="p-2.5 bg-white rounded-lg border border-emerald-200/80 text-xs flex items-center justify-between"
-                  >
-                    <div>
-                      <span className="font-bold text-slate-900 block">
-                        {r.name}
-                      </span>
-                      <span className="text-[11px] text-slate-500">{r.eventTitle}</span>
-                    </div>
-                    <span className="font-mono text-[11px] font-bold text-emerald-700">
-                      {r.confirmationCode} · CONFIRMADO
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* List of Athletes */}
-            <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
-              {filteredAthletes.length === 0 ? (
-                <div className="p-8 text-center text-xs text-slate-500 bg-slate-50 rounded-xl border border-slate-200">
-                  Nenhum participante encontrado com este filtro.
-                </div>
-              ) : (
-                filteredAthletes.map((entry) => {
-                  const { participant, projectName } = entry;
-                  const isSelected =
-                    selectedAthleteEntry?.participant.id === participant.id;
-                  const status = participant.enrollmentStatus || 'ativo';
-
-                  return (
-                    <button
-                      key={`${entry.projectId}-${participant.id}`}
-                      type="button"
-                      onClick={() => setSelectedAthleteEntry(entry)}
-                      className={`w-full text-left p-3.5 rounded-xl border transition-all flex items-center justify-between gap-3 cursor-pointer ${
-                        isSelected
-                          ? 'bg-sky-50/90 border-[#0284c7] shadow-2xs'
-                          : 'bg-slate-50/70 hover:bg-slate-100 border-slate-200/80'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <img
-                          src={participant.photoUrl}
-                          alt={participant.name}
-                          referrerPolicy="no-referrer"
-                          className="w-11 h-11 rounded-full object-cover bg-slate-200 shrink-0 border border-slate-300"
-                        />
-                        <div className="min-w-0">
-                          <span className="text-xs font-bold text-slate-900 truncate block">
-                            {participant.name}
-                          </span>
-                          <div className="text-[11px] text-slate-500 truncate">
-                            <span>{participant.category}</span>
-                            <span aria-hidden="true"> · </span>
-                            <span>{projectName}</span>
-                          </div>
-                          <div className="text-[10px] font-mono text-slate-500 mt-0.5">
-                            <span>Cód: {participant.nextfitCode || 'VTL-2026'}</span>
-                            <span aria-hidden="true"> · </span>
-                            <span>
-                              Assiduidade: {participant.schoolInfo?.attendanceRate || '95%'}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <span
-                        className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded shrink-0 ${
-                          status === 'ativo'
-                            ? 'text-emerald-800 bg-emerald-100'
-                            : 'text-amber-800 bg-amber-100'
-                        }`}
-                      >
-                        {status}
-                      </span>
-                    </button>
-                  );
-                })
-              )}
-            </div>
-          </div>
-
-          {/* Right Column: Digital ID Card, Enrollment Declaration & Certificate */}
-          <div className="lg:col-span-7 bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 space-y-6">
-            {/* Document Type Selector */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-4">
-              <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl">
-                <button
-                  type="button"
-                  onClick={() => setSelectedDocType('carteirinha')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap ${
-                    selectedDocType === 'carteirinha'
-                      ? 'bg-white text-slate-900 shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  Carteirinha Digital
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSelectedDocType('declaracao')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap ${
-                    selectedDocType === 'declaracao'
-                      ? 'bg-white text-slate-900 shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  Declaração Escolar
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSelectedDocType('certificado')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap ${
-                    selectedDocType === 'certificado'
-                      ? 'bg-white text-slate-900 shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  Certificado Esportivo
-                </button>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => window.print()}
-                className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-semibold rounded-xl transition-colors cursor-pointer self-start sm:self-auto whitespace-nowrap shrink-0"
-              >
-                <Printer className="w-3.5 h-3.5" />
-                <span>Imprimir / Salvar PDF</span>
-              </button>
-            </div>
-
-            {selectedAthleteEntry ? (
-              <>
-                {selectedDocType === 'carteirinha' && (
-                  <div className="space-y-5">
-                    {/* Official Student / Athlete Card Visual */}
-                    <div className="max-w-lg mx-auto bg-gradient-to-br from-[#061a38] via-[#0a254d] to-[#04142b] text-white rounded-2xl p-6 border border-sky-400/30 shadow-xl space-y-5">
-                      <div className="flex items-center justify-between border-b border-white/15 pb-4">
-                        <div className="flex items-center gap-3">
-                          <img
-                            src="/logo.png"
-                            alt="Brasão Vitalizar"
-                            className="w-12 h-12 object-contain shrink-0"
-                          />
-                          <div>
-                            <span className="text-[10px] text-sky-300 font-semibold uppercase tracking-wider block">
-                              Identidade Esportiva Estudantil
-                            </span>
-                            <h3 className="text-base font-extrabold tracking-tight">
-                              ASSOCIAÇÃO ESPORTIVA VITALIZAR
-                            </h3>
-                            <span className="text-[11px] text-sky-200/80 font-mono">
-                              CNPJ {clubInfo.cnpj} · Cariacica/ES
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="text-right font-mono">
-                          <span className="text-[10px] text-sky-300 block">MATRÍCULA</span>
-                          <span className="text-xs font-bold text-white">
-                            {selectedAthleteEntry.participant.nextfitCode ||
-                              `VTL-${selectedAthleteEntry.participant.jerseyNumber}026`}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="flex flex-col sm:flex-row items-center sm:items-start gap-5">
-                        <img
-                          src={selectedAthleteEntry.participant.photoUrl}
-                          alt={selectedAthleteEntry.participant.name}
-                          referrerPolicy="no-referrer"
-                          className="w-24 h-28 rounded-xl object-cover border-2 border-sky-400 shadow-md shrink-0 bg-slate-800"
-                        />
-
-                        <div className="flex-1 space-y-2.5 text-center sm:text-left w-full">
-                          <div>
-                            <span className="text-[10px] text-sky-300 uppercase">
-                              Nome do Atleta / Participante
-                            </span>
-                            <h4 className="text-lg font-extrabold text-white leading-snug">
-                              {selectedAthleteEntry.participant.name}
-                            </h4>
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-2 text-xs bg-white/5 p-3 rounded-xl border border-white/10">
-                            <div>
-                              <span className="text-[10px] text-sky-300 block">
-                                Categoria / Turma
-                              </span>
-                              <span className="font-bold text-white">
-                                {selectedAthleteEntry.participant.category}
-                              </span>
-                            </div>
-                            <div>
-                              <span className="text-[10px] text-sky-300 block">
-                                Posição / Função
-                              </span>
-                              <span className="font-bold text-white">
-                                {selectedAthleteEntry.participant.position}
-                              </span>
-                            </div>
-                            <div>
-                              <span className="text-[10px] text-sky-300 block">
-                                Assiduidade MROSC
-                              </span>
-                              <span className="font-bold text-emerald-300 font-mono">
-                                {selectedAthleteEntry.participant.schoolInfo
-                                  ?.attendanceRate || '95%'}
-                              </span>
-                            </div>
-                            <div>
-                              <span className="text-[10px] text-sky-300 block">
-                                Situação Cadastral
-                              </span>
-                              <span className="font-bold text-emerald-300 uppercase">
-                                {selectedAthleteEntry.participant.enrollmentStatus ||
-                                  'ATIVO'}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="pt-3 border-t border-white/15 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] text-sky-200/90">
-                        <div>
-                          <span className="font-semibold text-white block">
-                            {selectedAthleteEntry.projectName}
-                          </span>
-                          <span>{selectedAthleteEntry.projectLocation}</span>
-                        </div>
-                        <div className="font-mono text-right">
-                          <span className="text-emerald-300 font-bold">
-                            VÁLIDA ATÉ DEZ/2026
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <p className="text-xs text-slate-500 text-center">
-                      Documento digital gratuito de identificação socioesportiva emitida sem exibição de dados de contato pessoal (em conformidade com a LGPD e proteção infantojuvenil).
-                    </p>
-                  </div>
-                )}
-
-                {selectedDocType === 'declaracao' && (
-                  <div className="p-6 sm:p-8 rounded-2xl border border-slate-300 bg-slate-50/50 space-y-5 text-slate-800">
-                    <div className="border-b border-slate-200 pb-4 flex items-center justify-between gap-4">
-                      <div>
-                        <p className="text-xs font-bold text-[#0284c7] uppercase">
-                          Associação Esportiva Vitalizar · CNPJ {clubInfo.cnpj}
-                        </p>
-                        <h3 className="text-lg font-extrabold text-slate-900 mt-0.5">
-                          DECLARAÇÃO DE VÍNCULO E ASSIDUIDADE SOCIOESPORTIVA
-                        </h3>
-                      </div>
-                      <FileCheck2 className="w-8 h-8 text-[#0284c7] shrink-0" />
-                    </div>
-
-                    <div className="space-y-3 text-sm leading-relaxed text-slate-700">
-                      <p>
-                        Declaramos, para os devidos fins de comprovação junto às instituições escolares, famílias e órgãos de acompanhamento social, que{' '}
-                        <strong className="text-slate-900">
-                          {selectedAthleteEntry.participant.name}
-                        </strong>
-                        , código de registro{' '}
-                        <strong className="font-mono">
-                          {selectedAthleteEntry.participant.nextfitCode || 'VTL-2026'}
-                        </strong>
-                        , encontra-se regularmente matriculado(a) e frequentando com situação{' '}
-                        <strong className="uppercase text-emerald-700">
-                          {selectedAthleteEntry.participant.enrollmentStatus || 'ATIVA'}
-                        </strong>{' '}
-                        o projeto gratuito{' '}
-                        <strong className="text-slate-900">
-                          {selectedAthleteEntry.projectName}
-                        </strong>{' '}
-                        na categoria{' '}
-                        <strong>{selectedAthleteEntry.participant.category}</strong>.
-                      </p>
-
-                      <p>
-                        As atividades são ministradas em contraturno escolar ({selectedAthleteEntry.projectSchedule}) no{' '}
-                        <strong>{selectedAthleteEntry.projectLocation}</strong>, registrando taxa de assiduidade auditada de{' '}
-                        <strong className="font-mono text-emerald-700">
-                          {selectedAthleteEntry.participant.schoolInfo?.attendanceRate ||
-                            '95%'}
-                        </strong>{' '}
-                        e vínculo escolar informado junto à instituição{' '}
-                        <strong>
-                          {selectedAthleteEntry.participant.schoolInfo?.schoolName ||
-                            'Rede Pública de Ensino de Cariacica/ES'}
-                        </strong>
-                        .
-                      </p>
-                    </div>
-
-                    <div className="pt-6 border-t border-slate-200 flex flex-col sm:flex-row sm:items-end justify-between gap-4 text-xs text-slate-600">
-                      <div>
-                        <p className="font-bold text-slate-900">
-                          Cariacica/ES, {new Date().toLocaleDateString('pt-BR')}
-                        </p>
-                        <p>Coordenação Técnica: {selectedAthleteEntry.projectCoordinator}</p>
-                        <p>Presidência Executiva: {clubInfo.president}</p>
-                      </div>
-                      <div className="font-mono text-[11px] bg-white px-3 py-2 rounded-lg border border-slate-200">
-                        Autenticidade MROSC: VTL-DEC-{selectedAthleteEntry.participant.id.slice(0, 6).toUpperCase()}-2026
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {selectedDocType === 'certificado' && (
-                  <div className="p-6 sm:p-8 rounded-2xl border-2 border-[#0284c7]/40 bg-gradient-to-br from-white to-sky-50/40 space-y-5 text-center">
-                    <Award className="w-12 h-12 text-[#0284c7] mx-auto" />
-                    <div className="space-y-1">
-                      <span className="text-xs font-bold uppercase tracking-widest text-[#0284c7]">
-                        Certificado Oficial de Participação e Mérito Esportivo
-                      </span>
-                      <h3 className="text-xl sm:text-2xl font-extrabold text-slate-900">
-                        {selectedAthleteEntry.participant.name}
-                      </h3>
-                    </div>
-
-                    <p className="text-xs sm:text-sm text-slate-600 max-w-xl mx-auto leading-relaxed">
-                      A <strong>Associação Esportiva Vitalizar</strong> (CNPJ {clubInfo.cnpj}) certifica que o(a) participante integra o programa{' '}
-                      <strong>{selectedAthleteEntry.projectName}</strong> ({selectedAthleteEntry.participant.category}), cumprindo a carga horária formativa de esporte educacional, cidadania, trabalho em equipe e saúde preventiva em Cariacica/ES.
-                    </p>
-
-                    <div className="pt-4 border-t border-slate-200/80 flex flex-col sm:flex-row items-center justify-around gap-4 text-xs text-slate-600">
-                      <div>
-                        <span className="font-bold text-slate-900 block">
-                          {clubInfo.president}
-                        </span>
-                        <span>Presidente · Associação Esportiva Vitalizar</span>
-                      </div>
-                      <div>
-                        <span className="font-bold text-slate-900 block">
-                          {selectedAthleteEntry.projectCoordinator}
-                        </span>
-                        <span>Coordenação Técnico-Pedagógica</span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </>
-            ) : null}
-          </div>
-        </div>
-      )}
-
-      {/* ======================================================================== */}
-      {/* TAB 2 (IDEA 3): JOGOS, RESULTADOS & GALERIA DE TROFÉUS DA BASE */}
+      {/* TAB 1 (IDEA 3): JOGOS, RESULTADOS & GALERIA DE TROFÉUS DA BASE */}
       {/* ======================================================================== */}
       {activeTab === 'resultados' && (
         <div className="space-y-8">

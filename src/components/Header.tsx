@@ -19,7 +19,7 @@ const NAV_LINKS = [
   { id: 'home', label: 'Início' },
   { id: 'a-vitalizar', label: 'Quem Somos' },
   { id: 'projetos', label: 'Projetos' },
-  { id: 'portal-comunidade', label: 'Portal & PIX' },
+  { id: 'portal-comunidade', label: 'Apoie PIX & Jogos' },
   { id: 'eventos', label: 'Agenda' },
   { id: 'noticias', label: 'Notícias' },
   { id: 'patrocinadores', label: 'Parceiros' },
